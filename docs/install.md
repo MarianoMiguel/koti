@@ -8,13 +8,13 @@ Follow [secureblue's install guide](https://secureblue.dev/install) and pick **K
 
 ## 2. Registry auth (only while the package is private)
 
-The device needs a token to pull from a private ghcr package. Create a GitHub token with `read:packages`, then:
+The device needs a token to pull from a private ghcr package. Create a classic GitHub PAT with the `read:packages` scope (github.com/settings/tokens), then:
 
 ```bash
+TOKEN='<paste token>'
 sudo mkdir -p /etc/ostree
-echo -n 'MarianoMiguel:<TOKEN>' | base64 | \
-  sudo tee /dev/null | xargs -I{} sudo sh -c \
-  'printf "{\"auths\":{\"ghcr.io\":{\"auth\":\"{}\"}}}" > /etc/ostree/auth.json'
+printf '{"auths":{"ghcr.io":{"auth":"%s"}}}' \
+  "$(printf '%s' "MarianoMiguel:$TOKEN" | base64 -w0)" | sudo tee /etc/ostree/auth.json >/dev/null
 sudo chmod 600 /etc/ostree/auth.json
 ```
 
