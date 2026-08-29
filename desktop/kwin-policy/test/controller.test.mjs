@@ -128,23 +128,136 @@ test("focusing a window off the canvas switches to its stage", () => {
   assert.deepEqual(visibleIds(layout(c)), ["a"]);
 });
 
-test("the frontmost window is centred and larger than the one behind it", () => {
+test("a stage's first window is centred and largest, the next peeks out behind it", () => {
   const c = withApps(["a", "editor"], ["b", "editor"]);
-  ctl.focusWindow(c, WS, OUT, "b", { screen });
   const res = layout(c);
-  const front = rectOf(res, "b");
-  const behind = rectOf(res, "a");
-  assert.ok(front.width > behind.width, "front window should be the largest");
+  const first = rectOf(res, "a");
+  const second = rectOf(res, "b");
+  assert.ok(first.width > second.width, "the first window should be the largest");
   // Centred horizontally on the canvas (one stage, so no rail).
-  assert.equal(front.x + front.width / 2, screen.x + screen.width / 2);
-  assert.ok(behind.x < front.x && behind.y < front.y, "the window behind peeks up-left");
+  assert.equal(first.x + first.width / 2, screen.x + screen.width / 2);
+  assert.ok(second.x < first.x && second.y < first.y, "the second peeks up-left");
+});
+
+test("clicking a window does not move or resize anything on the stage", () => {
+  const c = withApps(["a", "editor"], ["b", "editor"]);
+  const before = layout(c);
+  ctl.focusWindow(c, WS, OUT, "a", { screen });
+  assert.deepEqual(layout(c).windows, before.windows);
+});
+
+test("a window dragged on a stage stays where it was put", () => {
+  const c = withApps(["a", "editor"], ["b", "editor"]);
+  const from = rectOf(layout(c), "a");
+  // Somewhere the window actually fits — a full-canvas window cannot move far.
+  const to = { x: 60, y: 40, width: from.width, height: from.height };
+  ctl.applyUserGeometry(c, WS, OUT, "a", { from, to, cursor: { x: 200, y: 150 }, screen });
+  assert.deepEqual(rectOf(layout(c), "a"), to);
+  // …and still after switching away and back.
+  ctl.switchMode(c, WS, OUT, "floating", { screen });
+  ctl.switchMode(c, WS, OUT, "stage", { screen });
+  assert.deepEqual(rectOf(layout(c), "a"), to);
+});
+
+test("resizing on a stage is kept too", () => {
+  const c = withApps(["a", "editor"]);
+  const from = rectOf(layout(c), "a");
+  const to = { x: from.x, y: from.y, width: 300, height: 200 };
+  ctl.applyUserGeometry(c, WS, OUT, "a", { from, to, screen });
+  assert.deepEqual(rectOf(layout(c), "a"), to);
+});
+
+test("dragging a tile onto another tile's left half splits it there (PRD §12)", () => {
+  const c = withWindows("a", "b", "c");
+  ctl.switchMode(c, WS, OUT, "tiling", { screen });
+  const target = rectOf(layout(c), "a");
+  const from = rectOf(layout(c), "c");
+  // Drop c on the left edge of a's tile.
+  const cursor = { x: target.x + target.width * 0.1, y: target.y + target.height / 2 };
+  ctl.applyUserGeometry(c, WS, OUT, "c", {
+    from, to: { ...from, x: from.x + 200, y: from.y + 20 }, cursor, screen,
+  });
+  const after = layout(c);
+  assert.ok(rectOf(after, "c").x < rectOf(after, "a").x, "c should now sit left of a");
+});
+
+test("a drag that lands on no tile leaves the tiling alone", () => {
+  const c = withWindows("a", "b");
+  ctl.switchMode(c, WS, OUT, "tiling", { screen });
+  const before = layout(c);
+  const from = rectOf(before, "a");
+  ctl.applyUserGeometry(c, WS, OUT, "a", {
+    from, to: { ...from, x: from.x + 50 }, cursor: { x: -500, y: -500 }, screen,
+  });
+  assert.deepEqual(layout(c), before);
+});
+
+test("dragging a tile's shared edge resizes the split, not the window alone", () => {
+  const c = withWindows("a", "b");
+  ctl.switchMode(c, WS, OUT, "tiling", { screen });
+  const from = rectOf(layout(c), "a");
+  // Drag a's right edge 100px to the right.
+  ctl.applyUserGeometry(c, WS, OUT, "a", {
+    from, to: { ...from, width: from.width + 100 }, screen,
+  });
+  const after = layout(c);
+  assert.equal(rectOf(after, "a").width, from.width + 100);
+  // b gives up exactly what a gained — the split moved, nothing overlaps.
+  assert.equal(rectOf(after, "b").x, rectOf(after, "a").x + rectOf(after, "a").width);
+});
+
+test("resizing in scrolling mode sets a width the strip then keeps (PRD §13)", () => {
+  const c = withWindows("a", "b", "c");
+  ctl.switchMode(c, WS, OUT, "scrolling", { screen });
+  const from = rectOf(layout(c), "a");
+  ctl.applyUserGeometry(c, WS, OUT, "a", {
+    from, to: { ...from, width: 300 }, screen,
+  });
+  const after = layout(c);
+  assert.equal(rectOf(after, "a").width, 300);
+  assert.equal(rectOf(after, "b").width, 500, "other widths are untouched");
+  assert.equal(rectOf(after, "b").x, 300, "b follows a on the strip");
+});
+
+test("dragging along the strip reorders it", () => {
+  const c = withWindows("a", "b", "c");
+  ctl.switchMode(c, WS, OUT, "scrolling", { screen });
+  const from = rectOf(layout(c), "a");
+  // Drop a past the midpoint of b (b spans 500–1000, so 800 is its right half).
+  ctl.applyUserGeometry(c, WS, OUT, "a", {
+    from, to: { ...from, x: from.x + 600 }, cursor: { x: 800, y: 100 }, screen,
+  });
+  assert.deepEqual(layout(c).windows.map((w) => w.id), ["b", "a", "c"]);
+});
+
+test("dropping a window back where it already was changes nothing", () => {
+  const c = withWindows("a", "b", "c");
+  ctl.switchMode(c, WS, OUT, "scrolling", { screen });
+  const from = rectOf(layout(c), "a");
+  ctl.applyUserGeometry(c, WS, OUT, "a", {
+    from, to: { ...from, x: from.x + 100 }, cursor: { x: 600, y: 100 }, screen,
+  });
+  assert.deepEqual(layout(c).windows.map((w) => w.id), ["a", "b", "c"]);
+});
+
+test("a drag in floating mode is simply the new geometry", () => {
+  const c = withWindows("a");
+  const to = { x: 10, y: 20, width: 300, height: 200 };
+  ctl.applyUserGeometry(c, WS, OUT, "a", { from: { x: 0, y: 0, width: 300, height: 200 }, to, screen });
+  assert.deepEqual(rectOf(layout(c), "a"), to);
 });
 
 test("the rail takes no space until there is a second stage", () => {
   const one = withApps(["a", "editor"]);
-  assert.equal(rectOf(layout(one), "a").x, 40); // centred at 92% of a 1000px canvas
+  assert.equal(rectOf(layout(one), "a").x, 40); // centred at 92% of a 1000px screen
+});
+
+test("a staged window is centred on the screen even when the rail is reserved", () => {
   const two = withApps(["a", "editor"], ["b", "browser"]);
-  assert.ok(rectOf(layout(two), "b").x > 160, "canvas should start after the rail");
+  const rect = rectOf(layout(two), "b");
+  const rail = Math.round(screen.width * 0.16);
+  assert.equal(rect.x + rect.width / 2, screen.x + screen.width / 2, "centred on the screen");
+  assert.ok(rect.x >= rail, "and still clear of the rail");
 });
 
 test("closing a window takes its now-empty stage with it", () => {
@@ -262,4 +375,50 @@ test("moving at the screen edge leaves the layout alone", () => {
   const before = layout(c);
   ctl.moveNeighbour(c, WS, OUT, "b", "right", { screen });
   assert.deepEqual(layout(c), before);
+});
+
+test("a minimized window gives up its tile (PRD §11: native minimize)", () => {
+  const c = withWindows("a", "b");
+  ctl.switchMode(c, WS, OUT, "tiling", { screen });
+  ctl.setExcluded(c, WS, OUT, "b", true);
+  const res = layout(c);
+  assert.deepEqual(res.windows.map((w) => w.id), ["a"]);
+  assert.deepEqual(rectOf(res, "a"), screen);
+});
+
+test("restoring a minimized window puts it back in the layout", () => {
+  const c = withWindows("a", "b");
+  ctl.switchMode(c, WS, OUT, "tiling", { screen });
+  ctl.setExcluded(c, WS, OUT, "b", true);
+  layout(c);
+  ctl.setExcluded(c, WS, OUT, "b", false);
+  assert.deepEqual(layout(c).windows.map((w) => w.id).sort(), ["a", "b"]);
+});
+
+test("a minimized window takes no slot on the scrolling strip", () => {
+  const c = withWindows("a", "b", "c");
+  ctl.switchMode(c, WS, OUT, "scrolling", { screen });
+  ctl.setExcluded(c, WS, OUT, "a", true);
+  const res = layout(c);
+  assert.deepEqual(res.windows.map((w) => w.id), ["b", "c"]);
+  assert.equal(rectOf(res, "b").x, 0, "b takes the front of the strip");
+});
+
+test("a minimized window is not put on a stage", () => {
+  const c = withApps(["a", "editor"], ["b", "browser"]);
+  ctl.setExcluded(c, WS, OUT, "b", true);
+  layout(c);
+  assert.equal(stageCount(c), 1);
+  assert.deepEqual(visibleIds(layout(c)), ["a"]);
+});
+
+test("exclusion survives a serialize round trip", () => {
+  const c = withWindows("a", "b");
+  ctl.switchMode(c, WS, OUT, "tiling", { screen });
+  ctl.setExcluded(c, WS, OUT, "b", true);
+  const restored = ctl.deserialize(ctl.serialize(c));
+  assert.equal(ctl.isExcluded(restored, WS, OUT, "b"), true);
+  assert.deepEqual(
+    ctl.computeLayout(restored, WS, OUT, { screen }).windows.map((w) => w.id), ["a"],
+  );
 });

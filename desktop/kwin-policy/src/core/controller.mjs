@@ -49,6 +49,7 @@ function ensureCell(ctl, workspaceId, outputId) {
       workspaceId,
       outputId,
       order: [], // arrival order; the spine every mode reconciles against
+      excluded: new Set(), // present but not laid out — minimized, mostly
       focusId: null,
       stacking: [], // bottom → top, floating and stage
       tree: null, // tiling
@@ -70,7 +71,7 @@ export function mode(ctl, workspaceId, outputId) {
  * Track a window on a cell. `geometry` is where KWin currently has it, which
  * doubles as its remembered floating geometry (PRD §17) the first time we see it.
  */
-export function addWindow(ctl, workspaceId, outputId, id, { geometry, appId } = {}) {
+export function addWindow(ctl, workspaceId, outputId, id, { geometry, appId, focus = true } = {}) {
   const cell = ensureCell(ctl, workspaceId, outputId);
   if (cell.order.includes(id)) {
     // The adapter re-announces existing windows on every rebuild; take the
@@ -80,7 +81,10 @@ export function addWindow(ctl, workspaceId, outputId, id, { geometry, appId } = 
   }
   cell.order.push(id);
   cell.stacking = floating.raiseWindow(cell.stacking, id);
-  cell.focusId = id;
+  // A window that just opened takes focus; one merely being enumerated does
+  // not. Without the distinction, re-reading the window list would leave the
+  // *last* window "focused", which in Stage decides what is on screen.
+  if (focus) cell.focusId = id;
   rememberWindow(ctl.modes, id, { output: outputId, workspace: workspaceId });
   if (appId) rememberWindow(ctl.modes, id, { appId });
   if (geometry) rememberWindow(ctl.modes, id, { floatingGeometry: geometry });
@@ -93,6 +97,7 @@ export function removeWindow(ctl, workspaceId, outputId, id) {
   const at = cell.order.indexOf(id);
   if (at === -1) return cell;
   cell.order.splice(at, 1);
+  cell.excluded.delete(id);
   cell.stacking = cell.stacking.filter((w) => w !== id);
   if (cell.focusId === id) {
     cell.focusId = cell.order[Math.min(at, cell.order.length - 1)] ?? null;
@@ -112,6 +117,28 @@ export function removeWindow(ctl, workspaceId, outputId, id) {
 /** Windows the controller knows about on this cell, in arrival order. */
 export function windows(ctl, workspaceId, outputId) {
   return ensureCell(ctl, workspaceId, outputId).order.slice();
+}
+
+/**
+ * Take a window out of the layout without forgetting it. A window the user
+ * minimized is still theirs — it keeps its place in the order and everything
+ * PRD §17 remembers about it — but it must not hold a tile or a slot on the
+ * strip while it is not on screen.
+ */
+export function setExcluded(ctl, workspaceId, outputId, id, excluded) {
+  const cell = ensureCell(ctl, workspaceId, outputId);
+  if (excluded) cell.excluded.add(id);
+  else cell.excluded.delete(id);
+  return cell;
+}
+
+export function isExcluded(ctl, workspaceId, outputId, id) {
+  return ensureCell(ctl, workspaceId, outputId).excluded.has(id);
+}
+
+/** The windows a layout actually places. */
+function laidOut(cell) {
+  return cell.order.filter((id) => !cell.excluded.has(id));
 }
 
 // --- focus ------------------------------------------------------------------
@@ -194,13 +221,13 @@ function capture(ctl, cell, from, screen) {
  */
 function reconcile(ctl, cell, screen) {
   const active = mode(ctl, cell.workspaceId, cell.outputId);
-  const present = new Set(cell.order);
+  const present = new Set(laidOut(cell));
   if (active === "tiling") {
     for (const id of tree.windows(cell.tree)) {
       if (!present.has(id)) cell.tree = tree.removeWindow(cell.tree, id);
     }
     const have = new Set(tree.windows(cell.tree));
-    const missing = cell.order.filter((id) => !have.has(id));
+    const missing = laidOut(cell).filter((id) => !have.has(id));
     // Remembered tile positions first, so Tiling → Floating → Tiling comes back
     // in the order the user left it rather than in arrival order.
     missing.sort((a, b) => tilePos(ctl, a) - tilePos(ctl, b));
@@ -216,7 +243,7 @@ function reconcile(ctl, cell, screen) {
       if (!present.has(w.id)) cell.strip = scrolling.removeWindow(cell.strip, w.id);
     }
     const have = new Set(cell.strip.windows.map((w) => w.id));
-    const missing = cell.order.filter((id) => !have.has(id));
+    const missing = laidOut(cell).filter((id) => !have.has(id));
     missing.sort((a, b) => scrollPos(ctl, a) - scrollPos(ctl, b));
     for (const id of missing) {
       const remembered = recallWindow(ctl.modes, id);
@@ -240,7 +267,7 @@ function reconcile(ctl, cell, screen) {
     }
     cell.stages = dropEmptyStages(cell.stages, populated);
 
-    for (const id of cell.order) {
+    for (const id of laidOut(cell)) {
       if (stage.stageOf(cell.stages, id)) continue;
       cell.stages = placeInStage(ctl, cell.stages, id);
     }
@@ -332,22 +359,22 @@ export function computeLayout(ctl, workspaceId, outputId, { screen }) {
 function computeFloatingRects(ctl, cell, screen) {
   const remembered = new Map();
   const sizes = new Map();
-  for (const id of cell.order) {
+  for (const id of laidOut(cell)) {
     const mem = recallWindow(ctl.modes, id);
     if (mem?.floatingGeometry) remembered.set(id, mem.floatingGeometry);
   }
-  return floating.computeFloating({ screen, windows: cell.order, remembered, sizes });
+  return floating.computeFloating({ screen, windows: laidOut(cell), remembered, sizes });
 }
 
 function layoutFloating(ctl, cell, screen) {
   const rects = computeFloatingRects(ctl, cell, screen);
-  return cell.order.map((id) => ({ id, rect: rects.get(id), visible: true }));
+  return laidOut(cell).map((id) => ({ id, rect: rects.get(id), visible: true }));
 }
 
 function layoutTiling(ctl, cell, screen) {
   const inner = inset(screen, ctl.options.gap);
   const rects = tree.computeRects(cell.tree, inner, ctl.options.gap);
-  return cell.order
+  return laidOut(cell)
     .filter((id) => rects.has(id))
     .map((id) => ({ id, rect: rects.get(id), visible: true }));
 }
@@ -388,46 +415,53 @@ function layoutStage(ctl, cell, screen) {
     height: screen.height,
   };
   const activeStage = stages.find((s) => s.id === cell.stages.activeId);
-  const onCanvas = activeStage ? stackingOrder(cell, activeStage.windowIds) : [];
-  const rects = stageRects(onCanvas, canvas);
-  return cell.order.map((id) => ({
+  // Assignment order, not stacking order: a window's size and place on the
+  // stage must not change just because you clicked it. Raising is KWin's job.
+  const onCanvas = activeStage ? activeStage.windowIds : [];
+  const rects = stageRects(onCanvas, screen, rail);
+  // A window the user has placed on this stage keeps its place, verbatim.
+  // Clamping it back inside the canvas is what made stage windows feel
+  // undraggable: at 92% of the canvas there is nowhere for the clamp to let
+  // them go, so every drag looked like a snap-back. The only thing worth
+  // enforcing is that the window is still reachable at all.
+  for (const id of onCanvas) {
+    const placed = recallWindow(ctl.modes, id)?.stageGeometry;
+    if (placed && floating.fitsScreen(placed, canvas)) rects.set(id, placed);
+  }
+  return laidOut(cell).map((id) => ({
     id,
     rect: rects.get(id) ?? null,
     visible: rects.has(id),
   }));
 }
 
-/** A stage's windows bottom → top, following the cell's stacking order. */
-function stackingOrder(cell, ids) {
-  const set = new Set(ids);
-  const ordered = cell.stacking.filter((id) => set.has(id));
-  // Anything the stacking order has not seen yet goes on top, in cell order.
-  for (const id of ids) if (!ordered.includes(id)) ordered.push(id);
-  return ordered;
-}
-
 /**
- * Place one stage's windows on the canvas: the frontmost centred and large,
- * everything behind it a step smaller and offset up-left so its edge shows.
+ * Opening placement for one stage's windows: the first is centred and large,
+ * each one after it a step smaller and offset up-left so its edge shows.
  *
  * Deliberately not the windows' own floating geometry — that is what made
  * Stage look like floating with a margin. §17 still gives that geometry back
- * on the way out of Stage, which is where it matters.
+ * on the way out of Stage, which is where it matters. And it is only an
+ * opening placement: once the user drags a window it keeps what they chose.
  */
-function stageRects(ids, canvas) {
+function stageRects(ids, screen, rail) {
   const out = new Map();
+  // Centred on the real centre of the screen, not the centre of the canvas
+  // (Mariano, 2026-08-29). Keeping the rail out of the centring means the
+  // window has to fit between two rail-width margins, so the rail never
+  // overlaps it and the layout still looks centred to the eye.
+  const usableWidth = screen.width - 2 * rail;
   for (let i = 0; i < ids.length; i++) {
-    const depth = ids.length - 1 - i; // 0 is the frontmost window
+    const depth = i; // the stage's first window is the big centred one
     const scale = Math.max(0.45, STAGE_SCALE - depth * STAGE_DEPTH_SCALE);
-    const width = Math.round(canvas.width * scale);
-    const height = Math.round(canvas.height * scale);
-    const rect = {
-      x: Math.round(canvas.x + (canvas.width - width) / 2 - depth * STAGE_DEPTH_STEP),
-      y: Math.round(canvas.y + (canvas.height - height) / 2 - depth * STAGE_DEPTH_STEP),
+    const width = Math.round(usableWidth * scale);
+    const height = Math.round(screen.height * scale);
+    out.set(ids[i], {
+      x: Math.round(screen.x + (screen.width - width) / 2 - depth * STAGE_DEPTH_STEP),
+      y: Math.round(screen.y + (screen.height - height) / 2 - depth * STAGE_DEPTH_STEP),
       width,
       height,
-    };
-    out.set(ids[i], floating.clampToScreen(rect, canvas));
+    });
   }
   return out;
 }
@@ -440,6 +474,151 @@ function inset(screen, gap) {
     width: Math.max(1, screen.width - gap * 2),
     height: Math.max(1, screen.height - gap * 2),
   };
+}
+
+// --- direct manipulation (dragging and resizing) ----------------------------
+
+/** Edge movements below this are rounding, not intent. */
+const DRAG_EPSILON = 2;
+
+/**
+ * The user just finished dragging or resizing a window. What that *means*
+ * depends on the mode, and in every mode it has to mean something — a managed
+ * layout that silently undoes the drag reads as a broken window manager.
+ *
+ *   floating — it is the new geometry
+ *   stage    — it is the new geometry *within the stage*, remembered per stage
+ *   tiling   — a move re-inserts the window where it was dropped; a resize
+ *              drags the underlying split (PRD §12)
+ *   scrolling— a move reorders the strip; a resize sets the window's width,
+ *              which the strip then keeps (PRD §13)
+ *
+ * @param {{from: object, to: object, cursor?: {x: number, y: number}, screen: object}} drag
+ */
+export function applyUserGeometry(ctl, workspaceId, outputId, id, { from, to, cursor, screen }) {
+  const cell = ensureCell(ctl, workspaceId, outputId);
+  if (!cell.order.includes(id)) return cell;
+  const active = mode(ctl, workspaceId, outputId);
+  const moved = isMove(from, to);
+
+  if (active === "floating") {
+    rememberWindow(ctl.modes, id, { floatingGeometry: to });
+    return cell;
+  }
+
+  if (active === "stage") {
+    // Stage does not police geometry. Put a window where you want it and it
+    // stays there, on that stage, the way macOS behaves.
+    rememberWindow(ctl.modes, id, { stageGeometry: to });
+    return cell;
+  }
+
+  if (active === "tiling") {
+    if (moved && cursor) {
+      const target = tileAt(ctl, cell, screen, cursor, id);
+      if (target) {
+        cell.tree = tree.dropAt(cell.tree, id, target.id, quadrantOf(target.rect, cursor));
+      }
+    } else if (!moved) {
+      for (const [edge, delta] of resizeDeltas(from, to)) {
+        cell.tree = tree.resizeEdge(
+          cell.tree, id, edge, delta, inset(screen, ctl.options.gap), ctl.options.gap,
+        );
+      }
+    }
+    return cell;
+  }
+
+  if (active === "scrolling") {
+    if (moved && cursor) {
+      cell.strip = reorderStripTo(cell.strip, id, cursor.x - screen.x + cell.strip.viewportOffset);
+    } else if (!moved && Math.abs(to.width - from.width) > DRAG_EPSILON) {
+      cell.strip = scrolling.setWidth(cell.strip, id, to.width);
+      rememberWindow(ctl.modes, id, { scrollWidth: to.width });
+    }
+    return cell;
+  }
+
+  return cell;
+}
+
+/** A move keeps the size and shifts every edge by the same amount. */
+function isMove(from, to) {
+  return (
+    Math.abs(to.width - from.width) <= DRAG_EPSILON &&
+    Math.abs(to.height - from.height) <= DRAG_EPSILON &&
+    (Math.abs(to.x - from.x) > DRAG_EPSILON || Math.abs(to.y - from.y) > DRAG_EPSILON)
+  );
+}
+
+/** Which edges the user dragged, and by how much (positive grows the window). */
+function resizeDeltas(from, to) {
+  const out = [];
+  const left = to.x - from.x;
+  const right = to.x + to.width - (from.x + from.width);
+  const top = to.y - from.y;
+  const bottom = to.y + to.height - (from.y + from.height);
+  if (Math.abs(left) > DRAG_EPSILON) out.push(["left", -left]);
+  if (Math.abs(right) > DRAG_EPSILON) out.push(["right", right]);
+  if (Math.abs(top) > DRAG_EPSILON) out.push(["top", -top]);
+  if (Math.abs(bottom) > DRAG_EPSILON) out.push(["bottom", bottom]);
+  return out;
+}
+
+/** The tile under a point, ignoring the window being dragged. */
+function tileAt(ctl, cell, screen, point, excludeId) {
+  const rects = tree.computeRects(
+    cell.tree, inset(screen, ctl.options.gap), ctl.options.gap,
+  );
+  for (const [id, rect] of rects) {
+    if (id === excludeId) continue;
+    if (
+      point.x >= rect.x && point.x < rect.x + rect.width &&
+      point.y >= rect.y && point.y < rect.y + rect.height
+    ) {
+      return { id, rect };
+    }
+  }
+  return null;
+}
+
+/**
+ * Which edge of a tile a point is nearest, as a drop quadrant. Whichever axis
+ * the point is closer to an edge on wins, so dropping near the top of a wide
+ * tile stacks rather than splitting side-by-side.
+ */
+export function quadrantOf(rect, point) {
+  const rx = (point.x - rect.x) / rect.width;
+  const ry = (point.y - rect.y) / rect.height;
+  const horizontal = Math.min(rx, 1 - rx) <= Math.min(ry, 1 - ry);
+  if (horizontal) return rx < 0.5 ? "left" : "right";
+  return ry < 0.5 ? "top" : "bottom";
+}
+
+/**
+ * Move a window so it sits at strip coordinate `stripX` — the position the
+ * user actually dropped it at, measured on the strip they were looking at.
+ *
+ * `target` is an insertion point in the strip *as it stands*, so once the
+ * window is lifted out, everything past its old slot shifts down by one.
+ */
+function reorderStripTo(strip, id, stripX) {
+  const at = strip.windows.findIndex((w) => w.id === id);
+  if (at === -1) return strip;
+
+  let cursor = 0;
+  let target = strip.windows.length; // dropped past the end
+  for (let i = 0; i < strip.windows.length; i++) {
+    const w = strip.windows[i];
+    if (stripX < cursor + w.width / 2) {
+      target = i;
+      break;
+    }
+    cursor += w.width;
+  }
+
+  const to = target > at ? target - 1 : target;
+  return scrolling.moveWindow(strip, id, to - at);
 }
 
 // --- directional navigation (PRD §12: keyboard focus and movement) ---------
@@ -495,6 +674,7 @@ export function serialize(ctl) {
         workspaceId: cell.workspaceId,
         outputId: cell.outputId,
         order: cell.order,
+        excluded: [...cell.excluded],
         focusId: cell.focusId,
         stacking: cell.stacking,
         tree: cell.tree,
@@ -515,6 +695,7 @@ export function deserialize(json) {
       workspaceId: cell.workspaceId,
       outputId: cell.outputId,
       order: cell.order ?? [],
+      excluded: new Set(cell.excluded ?? []),
       focusId: cell.focusId ?? null,
       stacking: cell.stacking ?? [],
       tree: cell.tree ?? null,

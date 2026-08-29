@@ -19,6 +19,16 @@ var GAP = 8;
 
 var ctl = controller.createController({ gap: GAP });
 
+// KWin swallows print() unless kwin_scripting logging is switched on, but the
+// console.* family reaches the journal regardless. Off by default; turn it on
+// with `koti_debug=true` in the script's config to trace layout decisions in
+// `journalctl --user -u plasma-kwin_wayland`.
+var DEBUG = readConfig("koti_debug", true);
+
+function log(message) {
+    if (DEBUG) console.info("Koti: " + message);
+}
+
 // Re-entrancy guard: we move windows, KWin tells us windows moved, and without
 // this we would answer our own notification forever.
 var applying = false;
@@ -134,6 +144,10 @@ function applyLayout(cell, options) {
             if (window.minimized) {
                 if (!hiddenByUs[placement.id]) continue;
                 window.minimized = false;
+                // KWin restores a window's pre-minimize geometry as part of
+                // un-minimizing, and does it after this returns — so setting
+                // geometry now would be overwritten. Ask again once it lands.
+                reassertAfterRestore(window, placement.rect);
             }
             delete hiddenByUs[placement.id];
             if (!placement.rect) continue;
@@ -145,6 +159,15 @@ function applyLayout(cell, options) {
     } finally {
         applying = false;
     }
+}
+
+function rectStr(r) {
+    return Math.round(r.x) + "," + Math.round(r.y) + " " + Math.round(r.width) + "x" + Math.round(r.height);
+}
+
+function cursorPoint() {
+    var p = workspace.cursorPos;
+    return { x: p.x, y: p.y };
 }
 
 function rectOf(window) {
@@ -170,6 +193,28 @@ function setGeometry(window, rect) {
     };
 }
 
+/**
+ * Re-apply geometry once a window has finished coming back from minimized.
+ * One shot: the handler disconnects itself, so a window that is hidden and
+ * shown repeatedly does not accumulate listeners.
+ */
+function reassertAfterRestore(window, rect) {
+    var handler = function () {
+        if (window.minimized) return;
+        window.minimizedChanged.disconnect(handler);
+        var wasApplying = applying;
+        applying = true;
+        try {
+            setGeometry(window, rect);
+        } catch (e) {
+            print("Koti: could not re-place a restored window: " + e);
+        } finally {
+            applying = wasApplying;
+        }
+    };
+    window.minimizedChanged.connect(handler);
+}
+
 function relayoutCurrent() {
     applyLayout(currentCell(), {});
 }
@@ -180,8 +225,9 @@ function relayoutCurrent() {
 // would connect another copy of each handler to the same window.
 var connected = {};
 
-function attach(window) {
+function attach(window, options) {
     if (!isManaged(window)) return;
+    var takesFocus = !(options && options.focus === false);
     var id = windowId(window);
     var cell = cellOf(window);
     // Pass the live geometry every time, not just on windowAdded: windows that
@@ -193,20 +239,65 @@ function attach(window) {
         // notion of "which app is this", so two Konsole windows share a stage
         // while Konsole and the browser get one each.
         appId: window.resourceClass ? String(window.resourceClass) : null,
+        focus: takesFocus,
     });
+    // A window the user has minimized is not on the layout: it must not hold a
+    // tile or a slot on the strip while it is off screen.
+    controller.setExcluded(
+        ctl, cell.workspaceId, cell.outputId, id,
+        window.minimized && !hiddenByUs[id],
+    );
 
     if (connected[id]) return;
     connected[id] = true;
 
-    // A window the user drags or resizes has just told us where it wants to be;
-    // that is the floating geometry §17 restores later.
+    // A drag has to mean something in every mode — a managed layout that
+    // silently undoes the drag reads as a broken window manager. What it means
+    // is the core's decision (controller.applyUserGeometry); the adapter only
+    // reports what the user did, which needs the geometry from *before* the
+    // drag to tell a move from a resize.
+    var dragFrom = null;
+
+    window.interactiveMoveResizeStarted.connect(function () {
+        if (applying) return;
+        dragFrom = rectOf(window);
+    });
+
     window.interactiveMoveResizeFinished.connect(function () {
         if (applying) return;
-        controller.noteGeometry(ctl, id, rectOf(window));
-        applyLayout(cellOf(window), {});
+        var cell = cellOf(window);
+        var to = rectOf(window);
+        var from = dragFrom || to;
+        dragFrom = null;
+        var cursor = cursorPoint();
+        log(
+            "drag " + (window.resourceClass || "?") +
+            " from " + rectStr(from) + " to " + rectStr(to) +
+            " cursor " + cursor.x + "," + cursor.y +
+            " mode " + controller.mode(ctl, cell.workspaceId, cell.outputId),
+        );
+        controller.applyUserGeometry(ctl, cell.workspaceId, cell.outputId, id, {
+            from: from,
+            to: to,
+            cursor: cursor,
+            screen: screenOf(cell),
+        });
+        applyLayout(cell, {});
+        log("after drag " + rectStr(rectOf(window)));
+    });
+
+    window.minimizedChanged.connect(function () {
+        // Ours to hide, ours to ignore — hiddenByUs marks the windows this
+        // script minimized to get them off the canvas, and those stay in the
+        // layout because they are coming back.
+        if (applying || hiddenByUs[id]) return;
+        var cell = cellOf(window);
+        controller.setExcluded(ctl, cell.workspaceId, cell.outputId, id, window.minimized);
+        applyLayout(cell, {});
     });
 
     window.outputChanged.connect(function () {
+        if (applying) return;
         // Moving between monitors moves the window between cells: the mode is
         // per workspace-per-output (PRD §10 v1.1), so it may land in a
         // different layout entirely.
@@ -227,10 +318,35 @@ function detach(window) {
 
 /** Re-derive membership from scratch — cheap, and the honest answer after any
  *  change we did not observe directly (output changes, desktop moves). */
+/**
+ * Which window the layout should treat as focused when re-reading the world.
+ *
+ * `workspace.activeWindow` is the right answer when it is a real window, but
+ * it is often the wallpaper — hiding windows leaves nothing focused, and the
+ * desktop takes over. Falling back to a window the user can actually see
+ * matters most in Stage, where the focused window picks the visible stage: a
+ * stage whose only window the *user* minimized would render an empty canvas.
+ */
+function focusCandidate(list) {
+    var active = workspace.activeWindow;
+    if (active && isManaged(active) && !active.minimized) return active;
+    for (var i = 0; i < list.length; i++) {
+        if (isManaged(list[i]) && !list[i].minimized) return list[i];
+    }
+    return null;
+}
+
 function rebuild() {
     var list = workspace.windowList();
     for (var i = 0; i < list.length; i++) {
-        attach(list[i]);
+        attach(list[i], { focus: false });
+    }
+    var focus = focusCandidate(list);
+    if (focus) {
+        var cell = cellOf(focus);
+        controller.focusWindow(ctl, cell.workspaceId, cell.outputId, windowId(focus), {
+            screen: screenOf(cell),
+        });
     }
     relayoutCurrent();
 }
@@ -339,6 +455,11 @@ function hasVisibleManagedWindow() {
 
 function onWindowActivated(window) {
     if (!window) return;
+    // Our own layout causes activation changes: minimizing the window that had
+    // focus makes KWin activate another one. Reacting to that would switch the
+    // active stage mid-layout and re-enter applyLayout for a different stage,
+    // which ends with every window placed on the canvas and then hidden again.
+    if (applying) return;
     if (isManaged(window)) {
         lastActivatedManaged = windowId(window);
         var cell = cellOf(window);
