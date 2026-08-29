@@ -36,4 +36,5 @@ Record any needed workaround per PRD §77 (reason, hardware match, scope, valida
 
 ## Worklog
 
+- 2026-08-28 (late): USB installer prepared on the Mac: official `secureblue-kinoite-main-hardened-20260502.iso` (4.1 GiB) downloaded from isos.secureblue.dev; checksum file PGP-verified against the secureblue keyring (good signature, key 26B4463ED8F313BC7E3FBDF9D9223AF0F47B3E41); sha256 verified after download; written to the 128 GB stick (`/dev/disk8`). This follows docs/install.md step 1 — boot the stick on the P14s, install with Secure Boot + FDE, then run the rebase steps 2–4 to land on Koti. Note: while the ghcr package is private, step 2 (registry auth) is required before the rebase — or decide M0-10 first and skip it.
 - 2026-08-28: Created. Waiting on first green build (M0-05) and hardware access.
