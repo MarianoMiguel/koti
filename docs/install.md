@@ -8,7 +8,9 @@ Follow [secureblue's install guide](https://secureblue.dev/install) and pick **K
 
 ## 2. Registry auth (only while the package is private)
 
-The device needs a token to pull from a private ghcr package. Create a classic GitHub PAT with the `read:packages` scope (github.com/settings/tokens), then:
+The device needs a token to pull from a private ghcr package. Create a **classic** GitHub PAT with the `read:packages` scope (github.com/settings/tokens → "Generate new token (classic)") — ghcr.io does **not** accept fine-grained tokens, which are GitHub's default. Then:
+
+Alternative with zero token setup: make just the ghcr **package** public (package settings → Danger Zone). The image carries no secrets by design; the source repo stays private.
 
 secureblue has no `sudo` — elevation is systemd's `run0`, and piping into it is
 unreliable (it runs commands in a fresh PTY), so stage the file first:
