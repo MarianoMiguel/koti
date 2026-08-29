@@ -1,0 +1,4 @@
+# Default terminal emulator, per the xdg-terminal-exec spec. Plasma 6 and
+# anything else that opens "a terminal" reads this; the old KDE
+# TerminalApplication key is gone.
+com.mitchellh.ghostty.desktop

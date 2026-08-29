@@ -39,6 +39,30 @@ modules:
         - ripgrep
         - neovim
 
+  # Ghostty (PRD §81) has no Fedora package and no Flathub listing; the
+  # scottames COPR is the one Universal Blue uses and builds for
+  # fedora-44-x86_64. Layered rather than Flatpak'd because the default
+  # terminal has to exist before any Flatpak does. `cleanup` drops the repo
+  # after the install so the shipped image carries no third-party repo.
+  - type: dnf
+    repos:
+      cleanup: true
+      copr:
+        - scottames/ghostty
+    install:
+      packages:
+        - ghostty
+
+  # ChatGPT desktop, OpenAI's own Linux build (public preview since
+  # 2026-08-11, supporting Fedora 43/44). Installed from the vendor URL because
+  # OpenAI publishes no standalone repo definition — the package configures its
+  # signed repo itself on install. `latest` is unpinned by design here: it is a
+  # preview that moves fast, and each image build re-resolves it.
+  - type: dnf
+    install:
+      packages:
+        - https://persistent.oaistatic.com/codex-app-prod/linux/rpm/latest/chatgpt.x86_64.rpm
+
   # First-party CLIs and daemon (osctl, agentboxd, box)
   - type: copy
     from: components
@@ -65,5 +89,21 @@ modules:
   - type: copy
     src: desktop/plasma/style
     dest: /usr/share/plasma/desktoptheme/org.koti.transparent/
+
+  # Flatpaks. secureblue's default remote is flathub-verified, which filters by
+  # *publisher* — that is why Slack and much else never appear in Bazaar.
+  # Mariano's call (2026-08-29): carry full Flathub, so the software the machine
+  # is for is actually installable. `osctl audit` reports the widened remote as
+  # an intentional deviation rather than pretending the default still holds.
+  - type: default-flatpaks
+    configurations:
+      - scope: system
+        repo:
+          url: https://dl.flathub.org/repo/flathub.flatpakrepo
+          name: flathub
+          title: Flathub
+        install:
+          - com.slack.Slack
+        notify: false
 
   - type: signing
