@@ -1,16 +1,49 @@
 # yaml-language-server: $schema=https://schema.blue-build.org/recipe-v1.json
 # Published to ghcr.io/marianomiguel/koti-nvidia
-# Not in the CI matrix yet — enabled by task M0-06.
+# Not in the CI matrix yet — enabled by task M0-06. Keep modules in sync with koti.yml
+# (fragments/ dedup is planned once a third variant appears).
 name: koti-nvidia
 description: Koti for modern NVIDIA hardware (RTX 3080 Ti class). secureblue Kinoite NVIDIA Open derivative.
 
 base-image: ghcr.io/secureblue/kinoite-nvidia-open-hardened
 image-version: latest
 
+stages:
+  - name: components
+    from: registry.fedoraproject.org/fedora:42
+    modules:
+      - type: copy
+        src: .
+        dest: /src
+      - type: script
+        snippets:
+          - dnf install -y rust cargo nodejs npm
+          - cd /src && cargo build --release --workspace
+          - cd /src/desktop/kwin-policy && npm ci && npm run build:kwin
+          - mkdir -p /out/bin /out/kwin && cp /src/target/release/osctl /src/target/release/agentboxd /src/target/release/box /out/bin/ && cp -r /src/desktop/kwin-policy/package/. /out/kwin/
+
 modules:
   - type: files
     files:
       - source: system
         destination: /
+
+  - type: copy
+    from: components
+    src: /out/bin/
+    dest: /usr/bin/
+
+  - type: copy
+    from: components
+    src: /out/kwin/
+    dest: /usr/share/kwin/scripts/org.koti.windowpolicy/
+
+  - type: copy
+    src: desktop/plasma/mode-selector
+    dest: /usr/share/plasma/plasmoids/org.koti.modeselector/
+
+  - type: copy
+    src: desktop/plasma/shell-layout
+    dest: /usr/share/plasma/look-and-feel/org.koti.lookandfeel/
 
   - type: signing

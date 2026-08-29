@@ -6,12 +6,48 @@ description: Koti — a secure desktop that feels like home. secureblue Kinoite 
 base-image: ghcr.io/secureblue/kinoite-main-hardened
 image-version: latest
 
-# Milestone 0: stay minimal. Prove build → sign → publish → rebase → rollback
-# before adding packages or configuration (PRD §100).
+# First-party components compile in a hermetic builder stage — same stages the
+# Builder VM (M1-04) will run later. See docs/image-integration.md.
+# Fedora builder ≈ runtime glibc family; digest pinning tracked in M1-09.
+stages:
+  - name: components
+    from: registry.fedoraproject.org/fedora:42
+    modules:
+      - type: copy
+        src: .
+        dest: /src
+      - type: script
+        snippets:
+          - dnf install -y rust cargo nodejs npm
+          - cd /src && cargo build --release --workspace
+          - cd /src/desktop/kwin-policy && npm ci && npm run build:kwin
+          - mkdir -p /out/bin /out/kwin && cp /src/target/release/osctl /src/target/release/agentboxd /src/target/release/box /out/bin/ && cp -r /src/desktop/kwin-policy/package/. /out/kwin/
+
 modules:
   - type: files
     files:
       - source: system
         destination: /
+
+  # First-party CLIs and daemon (osctl, agentboxd, box)
+  - type: copy
+    from: components
+    src: /out/bin/
+    dest: /usr/bin/
+
+  # Window policy KWin script (bundled)
+  - type: copy
+    from: components
+    src: /out/kwin/
+    dest: /usr/share/kwin/scripts/org.koti.windowpolicy/
+
+  # Plasma packages ship as plain data straight from the repo
+  - type: copy
+    src: desktop/plasma/mode-selector
+    dest: /usr/share/plasma/plasmoids/org.koti.modeselector/
+
+  - type: copy
+    src: desktop/plasma/shell-layout
+    dest: /usr/share/plasma/look-and-feel/org.koti.lookandfeel/
 
   - type: signing

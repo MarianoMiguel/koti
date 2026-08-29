@@ -27,9 +27,28 @@ into the workspace before it runs aren't guaranteed to reach the container
 build. A builder stage is hermetic and reproduces identically in the Builder VM
 (M1-04) later — same stages, no CI-shaped special case.
 
+## Implementation (verified against BlueBuild docs 2026-08-28)
+
+BlueBuild supports this natively: a top-level `stages:` list (each stage: `name`,
+`from`, `modules` limited to copy/script/files/containerfile) plus the `copy`
+module — `from: <stage>` copies out of a stage, no `from:` copies from the repo
+build context. Implemented in both recipes:
+
+- `components` stage on `registry.fedoraproject.org/fedora:42` (builder glibc
+  matches the runtime family, unlike a Debian rust image): installs
+  rust/cargo/node, `cargo build --release --workspace`, `npm ci && npm run
+  build:kwin`, artifacts to `/out`.
+- Main stage copies `/out/bin/` → `/usr/bin/`, the bundled KWin package →
+  `/usr/share/kwin/scripts/org.koti.windowpolicy/`, and the two Plasma packages
+  directly from the repo context into `/usr/share/plasma/…`.
+- `.dockerignore` keeps `.git`, `target/`, `node_modules/` out of the context.
+
 ## Open items (tracked in M1-09)
 
-- [ ] Pin builder images by digest (supply-chain, PRD §91)
-- [ ] Verify the exact BlueBuild module syntax for custom Containerfile stages against current docs before implementing
-- [ ] Make `org.koti.lookandfeel` the image-default Global Theme so first login gets the PRD §9 layout
-- [ ] Load `org.koti.windowpolicy` by default in kwinrc (Plugins group)
+- [ ] Pin the builder image by digest (supply-chain, PRD §91)
+- [ ] Default-enable `org.koti.windowpolicy` (kwinrc `[Plugins]`) and
+      `org.koti.lookandfeel` (kdeglobals) — **deferred deliberately**: shipping
+      `/etc/xdg/kwinrc`/`kdeglobals` wholesale could clobber secureblue's
+      hardening defaults (e.g. XWayland settings). Needs an on-device look at
+      what secureblue ships before choosing the merge mechanism.
+- [ ] Deduplicate the two recipes via `recipes/fragments/` once they drift
