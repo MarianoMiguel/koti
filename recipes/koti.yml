@@ -29,6 +29,16 @@ modules:
       - source: system
         destination: /
 
+  # PRD §81 host control-plane tools (M6-03). Language runtimes stay out —
+  # they belong in Boxes/Workshop.
+  - type: dnf
+    install:
+      packages:
+        - git
+        - gh
+        - ripgrep
+        - neovim
+
   # First-party CLIs and daemon (osctl, agentboxd, box)
   - type: copy
     from: components

@@ -100,7 +100,7 @@ Goal: iteration is painless — build, test, stage, seal, roll back from the mac
 |----|------|--------|-------|
 | M6-01 | Application audit: map current daily apps → Flatpak / image / Box / Workshop (PRD §82–83) | doing | draft at docs/app-migration.md — ✋ rows need Mariano |
 | M6-02 | Curated Flatpak set in image config | todo | |
-| M6-03 | Host dev tools in image (PRD §81: git, gh, ghostty, neovim, code, osctl) | todo | |
+| M6-03 | Host dev tools in image (PRD §81: git, gh, ghostty, neovim, code, osctl) | doing | git/gh/ripgrep/neovim added 2026-08-29 (P14s is installed and booting); ghostty + VS Code pending repo checks |
 | M6-04 | Tailscale + Proton VPN working (PRD §85) | todo | |
 | M6-05 | Acceptance: 7 consecutive working days without the previous OS | todo | |
 
