@@ -12,8 +12,8 @@ Phases map to PRD milestones (M0–M12). Phases beyond the active one are delibe
 
 ## Now / Next
 
-- **Now:** shell UI packages (M5-06 mac-like layout, M5-01 mode selector) + full §51 invariant set in `osctl audit` (M1-02)
-- **Next:** KWin script packaging for the policy layer; image install of the Plasma packages; KWin adapter wiring once the Customizer loop runs on the P14s
+- **Now:** image integration (M1-09) — get binaries + desktop packages shipping in the OCI image
+- **Next:** scrolling/stage adapter wiring design; `osctl doctor` v0; on-device work once the P14s runs Koti
 - **Waiting on Mariano:** P14s install (M0-08), visibility/CI decision (M0-10)
 
 ---
@@ -43,12 +43,13 @@ Goal: iteration is painless — build, test, stage, seal, roll back from the mac
 |----|------|--------|-------|
 | M1-01 | `osctl` Rust CLI skeleton (`status`, `audit` stubs) | done | osctl/ builds + tests locally |
 | M1-02 | Security-state machine v0: SECURE / CUSTOMIZING / DEGRADED via `osctl audit` (PRD §51, §97) | doing | 11 checks live (image/boot/MAC/desktop/privileges); 4 remain needing on-device facts |
-| M1-03 | `osctl customize on/off` + drift detection v0 | todo | |
+| M1-03 | `osctl customize on/off` + drift detection v0 | done | /run flag + full-audit drift check on exit; polkit helper + §63 full sequence come with later subsystems |
 | M1-04 | Builder VM + `osctl build` | todo | replaces CI-only builds |
 | M1-05 | `osctl test` — boot candidate in disposable VM | todo | |
 | M1-06 | `osctl stage` / `osctl rollback` | todo | |
 | M1-07 | `osctl seal` — customization → trusted signed deployment | todo | |
 | M1-08 | `osctl desktop reload` — KWin script dev loop | todo | |
+| M1-09 | Image integration: ship osctl/agentboxd/box + desktop packages via a builder stage | todo | decision record: docs/image-integration.md |
 
 ## Phase 2 — Four-Mode Behavioral Prototype (M2, PRD §102)
 

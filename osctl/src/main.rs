@@ -1,4 +1,5 @@
 mod audit;
+mod customizer;
 mod state;
 
 use clap::{Parser, Subcommand};
@@ -44,9 +45,19 @@ fn main() {
             print!("{}", audit::render(&checks));
             println!("\nResult\n{}", state::derive(&checks));
         }
-        Command::Customize { .. } => {
-            eprintln!("osctl customize: not implemented yet (task M1-03)");
-            std::process::exit(1);
+        Command::Customize { action } => {
+            let mut flag = customizer::RunFlag;
+            let result = match action {
+                CustomizeAction::On => customizer::turn_on(&mut flag),
+                CustomizeAction::Off => customizer::turn_off(&mut flag, probes.as_ref()),
+            };
+            match result {
+                Ok(msg) => println!("{msg}"),
+                Err(e) => {
+                    eprintln!("osctl customize: {e}");
+                    std::process::exit(1);
+                }
+            }
         }
         Command::Doctor => {
             eprintln!("osctl doctor: not implemented yet (Phase 1)");
