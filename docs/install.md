@@ -20,6 +20,18 @@ curl -fsSL https://raw.githubusercontent.com/MarianoMiguel/koti/main/cosign.pub 
 run0 mkdir -p /etc/pki/containers /etc/containers/registries.d
 run0 cp /tmp/koti.pub /etc/pki/containers/koti.pub
 
+# NOTE: do *not* add a registries.d file of your own here. The Koti image
+# already ships /usr/etc/containers/registries.d/marianomiguel-koti.yaml with
+# exactly this content, and two files declaring the same namespace make the
+# whole container config fail to parse:
+#
+#   Error parsing signature storage configuration: "docker" namespace
+#   "ghcr.io/marianomiguel/koti" defined both in ".../marianomiguel-koti.yaml"
+#   and ".../koti.yaml"
+#
+# which blocks every rpm-ostree update until one is removed. Before the first
+# pull the image is not on disk yet, so this one file is needed — and it must
+# be deleted right after the rebase (step 5).
 printf 'docker:\n  ghcr.io/marianomiguel/koti:\n    use-sigstore-attachments: true\n' > /tmp/koti-reg.yaml
 run0 cp /tmp/koti-reg.yaml /etc/containers/registries.d/koti.yaml
 
@@ -44,7 +56,30 @@ rpm-ostree rebase ostree-image-signed:docker://ghcr.io/marianomiguel/koti:latest
 systemctl reboot
 ```
 
-## 4. Verify
+## 4. Remove the bootstrap registries.d file
+
+Now that the image is on disk it carries its own
+`/usr/etc/containers/registries.d/marianomiguel-koti.yaml`, and the bootstrap
+copy from step 2 is a duplicate declaration of the same namespace. Leave both in
+place and every later `rpm-ostree upgrade` fails before it starts:
+
+```text
+error: Preparing import: Fetching manifest: failed to invoke method OpenImage:
+Error parsing signature storage configuration: "docker" namespace
+"ghcr.io/marianomiguel/koti" defined both in
+"/etc/containers/registries.d/marianomiguel-koti.yaml" and
+"/etc/containers/registries.d/koti.yaml"
+```
+
+```bash
+run0 rm -f /etc/containers/registries.d/koti.yaml
+rpm-ostree upgrade --check   # should now reach the registry
+```
+
+Keep `/etc/pki/containers/koti.pub` and the `policy.json` entry — the image does
+not ship the public key, so those are what keep the pull signature-verified.
+
+## 5. Verify
 
 ```bash
 rpm-ostree status -b               # booted deployment should be the koti image
