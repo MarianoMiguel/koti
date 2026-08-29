@@ -1,7 +1,7 @@
 # Koti PRD — A Secure Desktop That Feels Like Home
 
 **Status:** Canonical implementation specification
-**Version:** 1.2 (revised 2026-08-28 — see Revision History)
+**Version:** 1.3 (revised 2026-08-28 — see Revision History)
 **Source:** github.com/MarianoMiguel/koti
 **Base:** secureblue Kinoite / Fedora Atomic
 **Desktop:** KDE Plasma + KWin on Wayland
@@ -14,6 +14,8 @@
 ---
 
 # Revision History
+
+**1.3 (2026-08-28).** Default shell layout specified (§9), per Mariano's direction: macOS-like — slim transparent top bar with the system tray at the right and the layout-mode widget beside it; centered floating dock at the bottom. Ships as a first-party Global Theme package.
 
 **1.2 (2026-08-28).** Automatic tiling specified as a concealed split-tree autotiler with COSMIC-class ergonomics (§12), per Mariano's direction. The tree is internal; the user vocabulary stays "windows tile nicely", never "containers".
 
@@ -355,6 +357,27 @@ Responsible for:
 * security-state indicators;
 * launcher integration;
 * Customizer UI.
+
+### Default Shell Layout (v1.3)
+
+Koti boots into a macOS-like shell by default:
+
+```text
+┌──────────────────────────────────────────────────────┐
+│ ⌂  App  Menus            [Mode ▾] [tray icons] 12:04 │   ← slim transparent top bar
+│                                                      │
+│                                                      │
+│                                                      │
+│              ┌──────────────────────┐                │
+│              │  ▣  ▣  ▣  ▣  ▣  ▣   │                 │   ← centered floating dock
+└──────────────┴──────────────────────┴────────────────┘
+```
+
+* **Top bar:** full width, slim, transparent. Launcher and global application menu on the left; on the right, in order: the layout-mode widget (PRD §16), the system tray, the clock.
+* **Dock:** bottom, centered, floating, icons-only.
+* **Layout-mode widget:** the four-mode selector lives at the top right beside the system tray — tiling controls are one click away, always visible.
+
+Shipped as a first-party Global Theme (look-and-feel) package so fresh installs get this layout; everything remains rearrangeable with normal Plasma tools.
 
 KDE's ordinary infrastructure remains available underneath:
 

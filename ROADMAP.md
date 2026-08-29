@@ -12,8 +12,8 @@ Phases map to PRD milestones (M0–M12). Phases beyond the active one are delibe
 
 ## Now / Next
 
-- **Now:** four-mode window-policy core + `osctl` (feature tracks, local)
-- **Next:** `agentboxd` skeleton (M7-01); full §51 invariant set in `osctl audit` (M1-02); KWin adapter wiring once the Customizer loop runs on the P14s
+- **Now:** shell UI packages (M5-06 mac-like layout, M5-01 mode selector) + full §51 invariant set in `osctl audit` (M1-02)
+- **Next:** KWin script packaging for the policy layer; image install of the Plasma packages; KWin adapter wiring once the Customizer loop runs on the P14s
 - **Waiting on Mariano:** P14s install (M0-08), visibility/CI decision (M0-10)
 
 ---
@@ -84,11 +84,12 @@ Goal: iteration is painless — build, test, stage, seal, roll back from the mac
 
 | ID | Task | Status | Notes |
 |----|------|--------|-------|
-| M5-01 | Mode selector | todo | |
+| M5-01 | Mode selector | doing | plasmoid skeleton `org.koti.modeselector` done; policy-layer wiring pending |
 | M5-02 | Stage rail | todo | |
 | M5-03 | Security-state indicator | todo | |
 | M5-04 | Customizer UI | todo | |
 | M5-05 | Project/workspace UI + launcher integration | todo | |
+| M5-06 | Default shell layout: macOS-like top bar + centered dock (Global Theme, PRD §9 v1.3) | doing | package done; on-device validation + image install pending |
 
 ## Phase 6 — Daily Driver Migration (M6, PRD §106) — may start right after Phase 0
 
