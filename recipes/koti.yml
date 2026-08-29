@@ -40,15 +40,22 @@ modules:
         - neovim
 
   # Ghostty (PRD §81) has no Fedora package and no Flathub listing; the
-  # scottames COPR is the one Universal Blue uses and builds for
-  # fedora-44-x86_64. Layered rather than Flatpak'd because the default
-  # terminal has to exist before any Flatpak does. `cleanup` drops the repo
-  # after the install so the shipped image carries no third-party repo.
+  # scottames COPR is the one Universal Blue uses. Layered rather than
+  # Flatpak'd because the default terminal has to exist before any Flatpak
+  # does. `cleanup` drops the repo after install, so the shipped image carries
+  # no third-party repo.
+  #
+  # The .repo file rather than `copr:` — `dnf copr enable` cannot work out the
+  # chroot on a bootc base and bails with the whole chroot list (build
+  # 33236397207). The repo file templates $releasever/$basearch, so it also
+  # follows the base image to Fedora 45 instead of pinning a chroot, and it
+  # keeps gpgcheck against the COPR key.
   - type: dnf
     repos:
       cleanup: true
-      copr:
-        - scottames/ghostty
+      files:
+        add:
+          - https://copr.fedorainfracloud.org/coprs/scottames/ghostty/repo/fedora-44/scottames-ghostty-fedora-44.repo
     install:
       packages:
         - ghostty
