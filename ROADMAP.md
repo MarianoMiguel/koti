@@ -10,6 +10,8 @@ Phases map to PRD milestones (M0–M12). Phases beyond the active one are delibe
 
 **Local-first, feature-first.** Feature development (desktop, osctl, agentboxd) happens on the dev machine with local builds and tests. CI image builds are manual-only (`gh workflow run build.yml`) until the image starts consuming the components. Feature tracks run in parallel — don't serialize on hardware-blocked tasks.
 
+**Since 2026-08-29 the dev machine *is* the device** — a P14s booted on the signed Koti image. Plasma and KWin work is verified against a live session rather than written blind (recipes in [CLAUDE.md](CLAUDE.md)). The trade-off: no Rust toolchain there and `podman` is blocked by secureblue's disabled user namespaces, so osctl changes compile only in CI.
+
 ## Now / Next
 
 - **The dev machine is now the device.** Since 2026-08-29 this repo is worked on from the P14s running Koti itself, so "needs the device" is no longer a blocker: KWin scripts hot-load over `org.kde.kwin.Scripting`, panels apply over `org.kde.PlasmaShell.evaluateScript`, and everything is verified against a live Plasma 6 / Wayland session.

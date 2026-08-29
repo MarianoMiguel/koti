@@ -21,7 +21,35 @@ Koti is a secure desktop distribution (secureblue Kinoite derivative). The spec 
 
 - **Local-first (since 2026-08-28, per Mariano):** feature work builds and tests on the dev machine; image builds in CI are manual-only until the image consumes the components.
   - Window policy core: `cd desktop/kwin-policy && npm test` (pure JS, no deps).
-  - osctl: `cd osctl && cargo test` (only dep: clap).
+  - osctl: `cd osctl && cargo test` (only dep: clap) — **but see "The dev machine is the device" below: there is no cargo there.**
+
+## The dev machine is the device (since 2026-08-29)
+
+This repo is worked on from the P14s running Koti itself. Two consequences, both load-bearing:
+
+**Desktop work is verifiable live — verify it, don't defer it.**
+
+```bash
+# KWin script: hot-reload without restarting the compositor
+gdbus call --session --dest org.kde.KWin --object-path /Scripting \
+  --method org.kde.kwin.Scripting.unloadScript "org.koti.windowpolicy"
+gdbus call --session --dest org.kde.KWin --object-path /Scripting \
+  --method org.kde.kwin.Scripting.loadScript "$PWD/package/contents/code/main.js" "org.koti.windowpolicy"
+gdbus call --session --dest org.kde.KWin --object-path /Scripting --method org.kde.kwin.Scripting.start
+
+# Panel layout: apply to the running session
+koti-shell-apply
+
+# Invoke a mode shortcut the KWin script registered
+gdbus call --session --dest org.kde.kglobalaccel --object-path /component/kwin \
+  --method org.kde.kglobalaccel.Component.invokeShortcut "Koti Layout Tiling"
+```
+
+Reading state back: `evaluateScript` always returns `('',)` and never the script's value, and KWin's `print()` is swallowed because kwin_scripting logging is off. Script **errors** are logged, so `throw new Error("MARKER " + value)` plus `journalctl --user -u plasma-kwin_wayland` is how you inspect live state.
+
+**KWin's JS engine is not Node.** It rejects object spread (`{...x}`) and raises a temporal-dead-zone error for `const` arrow helpers referenced from a function defined above them. The bundle is therefore pinned to `--target=es2016`, and core modules use `function` declarations for anything called from earlier in the file. A bundle that parses under `node --check` can still fail to load in KWin — check the journal.
+
+**There is no Rust toolchain here, and `podman run` fails** (`cannot clone: Permission denied` — secureblue disables unprivileged user namespaces). So osctl/agentboxd changes compile only in CI. Don't put unverified Rust into a build that is meant to deliver something else; a typo costs the whole build. Enabling podman needs `ujust set-container-userns`, which weakens hardening — Mariano's call.
 - Image build trigger (manual): `gh workflow run build.yml`. Watch: `gh run watch`.
 - **Build budget (Mariano, 2026-08-29): Actions minutes on the free account are killers — one image build ≈ 40–90 min of quota.** Dispatch a build only when its output must actually reach a device (new packages/components to upgrade into), never to "verify" something local tests or a dry read of the recipe can check. Batch recipe changes so several land in one build. If in doubt, don't build — ask.
 - Images: `ghcr.io/marianomiguel/koti` (AMD/Intel), `ghcr.io/marianomiguel/koti-nvidia` (once M0-06 enables it).
