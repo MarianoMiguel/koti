@@ -76,6 +76,27 @@ try {
 topBar.addWidget("org.kde.plasma.systemtray");
 topBar.addWidget("org.kde.plasma.digitalclock");
 
+// ── Stage rail ──────────────────────────────────────────────────────────────
+// Only when asked for: a rail down the left edge is right in Stage mode and
+// wrong in the other three, so it is opt-in rather than part of the default
+// shell. `koti-shell-apply --stage-rail` sets the flag; the Global Theme path
+// leaves it undefined and gets no rail.
+if (typeof KOTI_STAGE_RAIL !== "undefined" && KOTI_STAGE_RAIL) {
+    var rail = new Panel;
+    rail.location = "left";
+    rail.height = Math.round(gridUnit * 4.5); // thickness, on a vertical panel
+    setIfSupported(rail, "alignment", "center");
+    setIfSupported(rail, "lengthMode", "fit");
+    setIfSupported(rail, "floating", true);
+    setIfSupported(rail, "opacity", "translucent");
+    try {
+        rail.addWidget("org.koti.stagerail");
+    } catch (e) {
+        print("koti-layout: org.koti.stagerail not installed, skipping: " + e);
+        rail.remove();
+    }
+}
+
 // ── Dock ────────────────────────────────────────────────────────────────────
 // Centered and hugging its icons: `fit` sizes the panel to its contents and
 // `center` puts it in the middle of the bottom edge, which is the dock look.

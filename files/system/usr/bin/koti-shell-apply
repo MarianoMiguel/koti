@@ -18,23 +18,28 @@ IMAGE_LAYOUT="/usr/share/plasma/look-and-feel/org.koti.lookandfeel/contents/layo
 
 usage() {
     cat <<'USAGE'
-Usage: koti-shell-apply [--layout FILE] [--install-packages] [--dry-run]
+Usage: koti-shell-apply [--layout FILE] [--install-packages] [--stage-rail] [--dry-run]
 
   --layout FILE        use this layout script instead of the installed one
   --install-packages   (re)install the Koti plasmoid + Global Theme from a
                        repo checkout before applying, so the mode selector
                        exists even on an older image
+  --stage-rail         also place the Stage rail down the left edge. Off by
+                       default: a rail belongs to Stage mode and is in the way
+                       in the other three
   --dry-run            print the layout script that would be applied
 USAGE
 }
 
 LAYOUT=""
 INSTALL_PACKAGES=0
+STAGE_RAIL=0
 DRY_RUN=0
 while [ $# -gt 0 ]; do
     case "$1" in
         --layout) LAYOUT="${2:?--layout needs a file}"; shift 2 ;;
         --install-packages) INSTALL_PACKAGES=1; shift ;;
+        --stage-rail) STAGE_RAIL=1; shift ;;
         --dry-run) DRY_RUN=1; shift ;;
         -h|--help) usage; exit 0 ;;
         *) echo "koti-shell-apply: unknown argument: $1" >&2; usage >&2; exit 2 ;;
@@ -55,7 +60,16 @@ if [ -z "$LAYOUT" ]; then
 fi
 [ -r "$LAYOUT" ] || { echo "koti-shell-apply: cannot read $LAYOUT" >&2; exit 1; }
 
+# The layout script is one file for both entry points, so the optional pieces
+# are switched on by defining a flag ahead of it rather than by editing it.
+prelude() {
+    if [ "$STAGE_RAIL" = 1 ]; then
+        printf 'var KOTI_STAGE_RAIL = true;\n'
+    fi
+}
+
 if [ "$DRY_RUN" = 1 ]; then
+    prelude
     cat "$LAYOUT"
     exit 0
 fi
@@ -70,7 +84,9 @@ if [ "$INSTALL_PACKAGES" = 1 ]; then
     if ! command -v kpackagetool6 >/dev/null 2>&1; then
         echo "koti-shell-apply: kpackagetool6 not found; skipping package install" >&2
     else
-        for spec in "Plasma/Applet:$MODE_SELECTOR" "Plasma/LookAndFeel:$SHELL_LAYOUT" "Plasma/Theme:$STYLE"; do
+        for spec in "Plasma/Applet:$MODE_SELECTOR" "Plasma/Applet:$PLASMA_DIR/workspace-indicator" \
+                    "Plasma/Applet:$PLASMA_DIR/stage-rail" \
+                    "Plasma/LookAndFeel:$SHELL_LAYOUT" "Plasma/Theme:$STYLE"; do
             type="${spec%%:*}"; path="${spec#*:}"
             [ -d "$path" ] || { echo "koti-shell-apply: no package at $path, skipping" >&2; continue; }
             # --upgrade fails when nothing is installed yet, and --install fails
@@ -104,7 +120,7 @@ if ! busctl --user status org.kde.plasmashell >/dev/null 2>&1; then
     exit 1
 fi
 
-SCRIPT="$(cat "$LAYOUT")"
+SCRIPT="$(prelude; cat "$LAYOUT")"
 OUT="$(gdbus call --session \
     --dest org.kde.plasmashell \
     --object-path /PlasmaShell \

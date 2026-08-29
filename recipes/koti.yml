@@ -92,6 +92,10 @@ modules:
     dest: /usr/share/plasma/plasmoids/org.koti.workspaceindicator/
 
   - type: copy
+    src: desktop/plasma/stage-rail
+    dest: /usr/share/plasma/plasmoids/org.koti.stagerail/
+
+  - type: copy
     src: desktop/plasma/shell-layout
     dest: /usr/share/plasma/look-and-feel/org.koti.lookandfeel/
 
