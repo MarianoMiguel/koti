@@ -1,2 +1,4 @@
 cosign.key
 .DS_Store
+target/
+node_modules/

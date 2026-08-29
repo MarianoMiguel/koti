@@ -1,13 +1,8 @@
 name: bluebuild
 on:
-  schedule:
-    - cron: "00 06 * * 0" # weekly (Sun 06:00 UTC) while the repo is private; go daily when public (task M0-10)
-  push:
-    branches: [main]
-    paths-ignore:
-      - "**.md"
-      - "tasks/**"
-      - "docs/**"
+  # Local-first phase (2026-08-28): image builds are manual-only while feature
+  # work happens on the host. Re-enable push/schedule triggers when the image
+  # starts consuming the desktop/osctl components.
   workflow_dispatch:
 
 concurrency:

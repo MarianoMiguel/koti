@@ -1,0 +1,10 @@
+{
+  "name": "koti-kwin-policy",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Koti window policy layer: pure layout core + KWin adapter (PRD §7)",
+  "type": "module",
+  "scripts": {
+    "test": "node --test"
+  }
+}

@@ -6,10 +6,15 @@ Task tracking for Koti. The spec is [PRD.md](PRD.md); working conventions are in
 
 Phases map to PRD milestones (M0–M12). Phases beyond the active one are deliberately coarse — elaborate a phase into real tasks when it starts, not before.
 
+## Working mode (since 2026-08-28, per Mariano)
+
+**Local-first, feature-first.** Feature development (desktop, osctl, agentboxd) happens on the dev machine with local builds and tests. CI image builds are manual-only (`gh workflow run build.yml`) until the image starts consuming the components. Feature tracks run in parallel — don't serialize on hardware-blocked tasks.
+
 ## Now / Next
 
-- **Now:** first green CI build of the signed image (M0-05)
-- **Next:** install on the P14s and run the hardware acceptance checklist (M0-08); decide repo visibility / CI budget (M0-10)
+- **Now:** four-mode window-policy core + `osctl` (feature tracks, local)
+- **Next:** `agentboxd` skeleton (M7-01); full §51 invariant set in `osctl audit` (M1-02); KWin adapter wiring once the Customizer loop runs on the P14s
+- **Waiting on Mariano:** P14s install (M0-08), visibility/CI decision (M0-10)
 
 ---
 
@@ -22,8 +27,8 @@ Goal: a signed Koti OCI image, built and published by CI, that the P14s can reba
 | M0-01 | Bootstrap: repo + PRD v1.1 + task system + private GitHub repo | done | 2026-08-28, see task file |
 | M0-02 | BlueBuild recipe `recipes/koti.yml` on `kinoite-main-hardened` | done | minimal by design; packages come post-M0 |
 | M0-03 | Cosign keypair; `SIGNING_SECRET` repo secret; commit `cosign.pub` | done | private key only in GH secrets |
-| M0-04 | CI: build + sign + push `ghcr.io/marianomiguel/koti` | done | on-push + weekly + manual dispatch |
-| M0-05 | First green CI build; verify pull + cosign signature | doing | see task file |
+| M0-04 | CI: build + sign + push `ghcr.io/marianomiguel/koti` | done | manual-only during local-first phase |
+| M0-05 | First green CI build; verify pull + cosign signature | done | green 2026-08-29; cosign claims validated in CI |
 | M0-06 | NVIDIA variant `koti-nvidia.yml` enabled in build matrix | todo | secondary hardware (RTX 3080 Ti desktop) |
 | M0-07 | Install docs: secureblue → rebase → signed rebase | done | docs/install.md |
 | M0-08 | P14s: install + hardware acceptance checklist (PRD §75) | blocked | needs Mariano at the machine |
@@ -36,8 +41,8 @@ Goal: iteration is painless — build, test, stage, seal, roll back from the mac
 
 | ID | Task | Status | Notes |
 |----|------|--------|-------|
-| M1-01 | `osctl` Rust CLI skeleton (`status`, `audit` stubs) | todo | |
-| M1-02 | Security-state machine v0: SECURE / CUSTOMIZING / DEGRADED via `osctl audit` (PRD §51, §97) | todo | |
+| M1-01 | `osctl` Rust CLI skeleton (`status`, `audit` stubs) | done | osctl/ builds + tests locally |
+| M1-02 | Security-state machine v0: SECURE / CUSTOMIZING / DEGRADED via `osctl audit` (PRD §51, §97) | doing | state derivation + 3 probes done; full §51 invariant set pending |
 | M1-03 | `osctl customize on/off` + drift detection v0 | todo | |
 | M1-04 | Builder VM + `osctl build` | todo | replaces CI-only builds |
 | M1-05 | `osctl test` — boot candidate in disposable VM | todo | |
@@ -58,7 +63,8 @@ Goal: iteration is painless — build, test, stage, seal, roll back from the mac
 
 | ID | Task | Status | Notes |
 |----|------|--------|-------|
-| M3-01 | ModeController architecture + per-workspace-per-output state | todo | |
+| M3-00 | Pure-logic core for all four modes, locally unit-tested (tiling, scrolling, stage, mode-state) | done | desktop/kwin-policy, 35 tests |
+| M3-01 | ModeController architecture + per-workspace-per-output state | doing | cell model done in core; KWin adapter pending |
 | M3-02 | FloatingController | todo | |
 | M3-03 | TilingController | todo | |
 | M3-04 | ScrollingController | todo | |

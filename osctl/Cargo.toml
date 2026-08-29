@@ -1,0 +1,10 @@
+[package]
+name = "osctl"
+version = "0.1.0"
+edition = "2021"
+description = "Koti system control: security state, audit, customization, boxes (PRD §66)"
+license = "MIT"
+
+# PRD §72: small dependency surface — justify every addition.
+[dependencies]
+clap = { version = "4", features = ["derive"] }
