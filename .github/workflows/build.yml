@@ -1,0 +1,39 @@
+name: bluebuild
+on:
+  schedule:
+    - cron: "00 06 * * 0" # weekly (Sun 06:00 UTC) while the repo is private; go daily when public (task M0-10)
+  push:
+    branches: [main]
+    paths-ignore:
+      - "**.md"
+      - "tasks/**"
+      - "docs/**"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  bluebuild:
+    name: Build Koti image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        recipe:
+          - koti.yml
+          # - koti-nvidia.yml   # enable with task M0-06
+    steps:
+      - name: Build custom image
+        uses: blue-build/github-action@v1.11
+        with:
+          recipe: ${{ matrix.recipe }}
+          cosign_private_key: ${{ secrets.SIGNING_SECRET }}
+          registry_token: ${{ github.token }}
+          pr_event_number: ${{ github.event.number }}
+          maximize_build_space: true

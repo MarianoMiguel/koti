@@ -1,0 +1,17 @@
+# yaml-language-server: $schema=https://schema.blue-build.org/recipe-v1.json
+# Published to ghcr.io/marianomiguel/koti
+name: koti
+description: Koti — a secure desktop that feels like home. secureblue Kinoite derivative (AMD/Intel).
+
+base-image: ghcr.io/secureblue/kinoite-main-hardened
+image-version: latest
+
+# Milestone 0: stay minimal. Prove build → sign → publish → rebase → rollback
+# before adding packages or configuration (PRD §100).
+modules:
+  - type: files
+    files:
+      - source: system
+        destination: /
+
+  - type: signing
