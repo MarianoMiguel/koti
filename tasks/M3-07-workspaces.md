@@ -1,7 +1,7 @@
 ---
 id: M3-07
 title: Per-monitor workspaces, hyprland/niri semantics, across all four modes
-status: doing
+status: done
 depends: [M3-01]
 ---
 
@@ -17,8 +17,8 @@ Workspaces that work the way hyprland and niri do — numbered, per monitor, ind
 - [x] Each workspace keeps its own mode and its own layout state
 - [x] Moving a window between workspaces keeps everything PRD §17 remembers
 - [x] A widget shows the workspace number
-- [ ] Move a window to another *monitor* (hyprland's movewindow mon:)
-- [ ] Per-workspace naming, and dynamic workspace count (niri)
+- [x] Move a window to another *monitor* — `Meta+Shift+,` / `Meta+Shift+.`
+- [ ] Per-workspace naming, and dynamic workspace count (niri) — deferred deliberately: nine fixed workspaces match hyprland, and naming needs UI before it earns its keep
 
 ## Design
 

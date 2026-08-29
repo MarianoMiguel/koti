@@ -49,6 +49,14 @@ Reading state back: `evaluateScript` always returns `('',)` and never the script
 
 **KWin's JS engine is not Node.** It rejects object spread (`{...x}`) and raises a temporal-dead-zone error for `const` arrow helpers referenced from a function defined above them. The bundle is therefore pinned to `--target=es2016`, and core modules use `function` declarations for anything called from earlier in the file. A bundle that parses under `node --check` can still fail to load in KWin — check the journal.
 
+**Fuzz the layout core before shipping a change to it.**
+
+```bash
+cd desktop/kwin-policy && KOTI_FUZZ_SEEDS=600 npm test
+```
+
+`test/invariants.test.mjs` drives every operation in every mode against every cell and re-checks every invariant after each step. It is the difference between a layout engine that works and one that "kinda works", and it has already caught bugs no unit test would have. A failure prints the seed and step, so it replays exactly. Add an operation to `OPERATIONS` whenever you add one to the controller — an operation the fuzzer does not know about is untested in combination with everything else.
+
 **There is no Rust toolchain here, and `podman run` fails** (`cannot clone: Permission denied` — secureblue disables unprivileged user namespaces). So osctl/agentboxd changes compile only in CI. Don't put unverified Rust into a build that is meant to deliver something else; a typo costs the whole build. Enabling podman needs `ujust set-container-userns`, which weakens hardening — Mariano's call.
 - Image build trigger (manual): `gh workflow run build.yml`. Watch: `gh run watch`.
 - **Build budget:** the repo went public on 2026-08-29 (M0-10), so Actions minutes are **unmetered** and the original quota rule no longer binds. Builds now cost wall-clock — they run in about 5–7 minutes. Still batch recipe changes rather than dispatching per edit, and still prefer a local test or a dry read of the recipe to a build for anything a build would not tell you. But a genuine question about how the image resolves *is* worth a build now.

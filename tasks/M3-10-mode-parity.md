@@ -1,7 +1,7 @@
 ---
 id: M3-10
 title: Remaining hyprland/niri/Stage Manager parity, per mode
-status: doing
+status: done
 depends: [M3-07]
 ---
 

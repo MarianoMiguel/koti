@@ -15,7 +15,8 @@ Phases map to PRD milestones (M0–M12). Phases beyond the active one are delibe
 ## Now / Next
 
 - **The dev machine is now the device.** Since 2026-08-29 this repo is worked on from the P14s running Koti itself, so "needs the device" is no longer a blocker: KWin scripts hot-load over `org.kde.kwin.Scripting`, panels apply over `org.kde.PlasmaShell.evaluateScript`, and everything is verified against a live Plasma 6 / Wayland session.
-- **Now:** on-device shakedown of the mode controls (docs/shortcuts.md lists all 108); thumbnails and drag-between-stages for the rail (M5-02)
+- **Now:** upgrade the P14s onto the 2026-08-29 image (`rpm-ostree upgrade`, then clear the `~/.local/share` overrides) and shake down the mode controls — [docs/shortcuts.md](docs/shortcuts.md) lists all 108
+- **Next:** stage-rail thumbnails and drag-between-stages (M5-02); workspace naming and dynamic count (M3-07)
 - **Waiting on Mariano:** full Flathub remote vs. Boxes for unverified apps, and which "ChatGPT desktop" (M6-06); hardware acceptance checklist (M0-08)
 
 ---
