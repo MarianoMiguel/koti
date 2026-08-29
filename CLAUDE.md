@@ -23,6 +23,7 @@ Koti is a secure desktop distribution (secureblue Kinoite derivative). The spec 
   - Window policy core: `cd desktop/kwin-policy && npm test` (pure JS, no deps).
   - osctl: `cd osctl && cargo test` (only dep: clap).
 - Image build trigger (manual): `gh workflow run build.yml`. Watch: `gh run watch`.
+- **Build budget (Mariano, 2026-08-29): Actions minutes on the free account are killers — one image build ≈ 40–90 min of quota.** Dispatch a build only when its output must actually reach a device (new packages/components to upgrade into), never to "verify" something local tests or a dry read of the recipe can check. Batch recipe changes so several land in one build. If in doubt, don't build — ask.
 - Images: `ghcr.io/marianomiguel/koti` (AMD/Intel), `ghcr.io/marianomiguel/koti-nvidia` (once M0-06 enables it).
 - Recipes: `recipes/*.yml` (BlueBuild recipe-v1 schema). Files shipped into the image live under `files/system/`.
 - OSTree image builds take ~30–45 min in CI; don't assume a failure before checking the run.
