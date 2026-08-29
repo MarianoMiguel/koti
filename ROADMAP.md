@@ -12,8 +12,9 @@ Phases map to PRD milestones (M0–M12). Phases beyond the active one are delibe
 
 ## Now / Next
 
-- **Now:** image integration (M1-09) — get binaries + desktop packages shipping in the OCI image
-- **Next:** scrolling/stage adapter wiring design; `osctl doctor` v0; on-device work once the P14s runs Koti
+- **Now (blocked on Mariano):** install Koti on the P14s (M0-08, docs/install.md); decide repo visibility (M0-10); review app-migration ✋ rows (M6-01)
+- **Next (needs the device):** validate shell layout + mode selector (M5-06), wire the KWin adapter (M3-01), QEMU backend (M7-01), remaining audit facts (M1-02), hardware checklist (M0-08)
+- Local-first backlog drained 2026-08-28 — the 2026-08-28 build ships everything below marked done.
 - **Waiting on Mariano:** P14s install (M0-08), visibility/CI decision (M0-10)
 
 ---
