@@ -1,59 +1,61 @@
-# Installing Koti (Milestone 0 rebase path)
+# Installing Koti (rebase path)
 
-Until the Stable channel ships an ISO (PRD §93), Koti installs by rebasing a secureblue system. Target: ThinkPad P14s Gen 6 AMD.
+Until the Stable channel ships an ISO (PRD §93), Koti installs by rebasing a secureblue system. Target: ThinkPad P14s Gen 6 AMD. The ghcr package is public — no registry auth is needed.
 
 ## 1. Install secureblue
 
 Follow [secureblue's install guide](https://secureblue.dev/install) and pick **Kinoite** (`kinoite-main-hardened`). During install: UEFI, Secure Boot **on**, full-disk encryption **on**, Wayland session (PRD §94).
 
-## 2. Registry auth (only while the package is private)
+Two facts about the freshly installed host (learned on real hardware, 2026-08-29):
 
-The device needs a token to pull from a private ghcr package. Create a **classic** GitHub PAT with the `read:packages` scope (github.com/settings/tokens → "Generate new token (classic)") — ghcr.io does **not** accept fine-grained tokens, which are GitHub's default. Then:
+- there is no `sudo` — elevation is systemd's **`run0`**;
+- piping into `run0` is unreliable (it runs commands in a fresh PTY) — stage files in `/tmp`, then `run0 cp`.
 
-Alternative with zero token setup: make just the ghcr **package** public (package settings → Danger Zone). The image carries no secrets by design; the source repo stays private.
+## 2. Register Koti's signing key (one time)
 
-secureblue has no `sudo` — elevation is systemd's `run0`, and piping into it is
-unreliable (it runs commands in a fresh PTY), so stage the file first:
-
-```bash
-TOKEN='<paste token>'
-printf '{"auths":{"ghcr.io":{"auth":"%s"}}}' \
-  "$(printf '%s' "MarianoMiguel:$TOKEN" | base64 -w0)" > /tmp/ghcr-auth.json
-run0 mkdir -p /etc/ostree
-run0 cp /tmp/ghcr-auth.json /etc/ostree/auth.json
-run0 chmod 600 /etc/ostree/auth.json
-rm /tmp/ghcr-auth.json
-```
-
-(If the repo goes public — task M0-10 — skip this step.)
-
-## 3. First rebase (unverified hop)
+secureblue's container policy **default-rejects** images it cannot verify — including rebase pulls. Don't weaken it; register Koti's cosign key so the very first pull is signature-verified (default-reject stays intact for every other registry):
 
 ```bash
-rpm-ostree rebase ostree-unverified-registry:ghcr.io/marianomiguel/koti:latest
-systemctl reboot
+curl -fsSL https://raw.githubusercontent.com/MarianoMiguel/koti/main/cosign.pub -o /tmp/koti.pub
+run0 mkdir -p /etc/pki/containers /etc/containers/registries.d
+run0 cp /tmp/koti.pub /etc/pki/containers/koti.pub
+
+printf 'docker:\n  ghcr.io/marianomiguel/koti:\n    use-sigstore-attachments: true\n' > /tmp/koti-reg.yaml
+run0 cp /tmp/koti-reg.yaml /etc/containers/registries.d/koti.yaml
+
+run0 cp /etc/containers/policy.json /etc/containers/policy.json.bak
+python3 - <<'EOF' > /tmp/policy.json
+import json
+p = json.load(open('/etc/containers/policy.json'))
+p.setdefault('transports', {}).setdefault('docker', {})['ghcr.io/marianomiguel/koti'] = [{
+    'type': 'sigstoreSigned',
+    'keyPath': '/etc/pki/containers/koti.pub',
+    'signedIdentity': {'type': 'matchRepository'},
+}]
+print(json.dumps(p, indent=2))
+EOF
+run0 cp /tmp/policy.json /etc/containers/policy.json
 ```
 
-## 4. Switch to the signed reference
-
-The image's signing module installs the container policy and cosign public key, so after the first boot you can pin to verified pulls:
+## 3. Rebase to Koti — signature-verified from the first pull
 
 ```bash
 rpm-ostree rebase ostree-image-signed:docker://ghcr.io/marianomiguel/koti:latest
 systemctl reboot
 ```
 
-## 5. Verify
+## 4. Verify
 
 ```bash
-rpm-ostree status          # deployment should show the koti image
+rpm-ostree status -b               # booted deployment should be the koti image
 cat /usr/share/koti/koti-release
+osctl status
 ```
 
 ## Updating
 
 ```bash
-rpm-ostree upgrade         # pulls the latest signed image
+rpm-ostree upgrade                 # pulls the latest signed image
 ```
 
 ## Rollback

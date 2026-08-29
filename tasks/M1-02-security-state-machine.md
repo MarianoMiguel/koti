@@ -18,7 +18,7 @@ depends: [M1-01]
 - [x] intentional deviations rendered separately (◆, drives CUSTOMIZING)
 - [ ] expected kernel arguments
 - [ ] unconfined userns restricted — must read the `ujust set-container-userns` state (secureblue's supported toggle, verified 2026-08-29): off → Pass; on → IntentionalDeviation (Workshop enablement, PRD §45), never a silent Pass
-- [ ] container policy as expected (`/etc/containers/policy.json` vs shipped policy)
+- [ ] container policy as expected (`/etc/containers/policy.json` vs shipped policy) — on-device fact (2026-08-29): secureblue ships default-reject; the install adds exactly one `sigstoreSigned` entry for ghcr.io/marianomiguel/koti keyed to /etc/pki/containers/koti.pub. Audit should verify: default still reject, our entry present and key-correct, nothing else added
 - [ ] no development KWin code active (depends on M1-03's customizer contract)
 
 Most probes are Linux-only: each stays behind the `Probes` trait with mocked unit tests; on-device validation happens on the P14s (after M0-08).
