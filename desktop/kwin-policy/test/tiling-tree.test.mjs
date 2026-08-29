@@ -10,6 +10,9 @@ import {
   moveDirection,
   resizeEdge,
   windows,
+  toggleOrientation,
+  swapWithMaster,
+  cycleNext,
 } from "../src/core/tiling-tree.mjs";
 
 const screen = { x: 0, y: 0, width: 1000, height: 600 };
@@ -147,4 +150,49 @@ test("swap keeps geometry, exchanges occupants", () => {
   const rects = computeRects(tree, screen);
   assert.deepEqual(rects.get("c"), { x: 0, y: 0, width: 500, height: 600 });
   assert.deepEqual(rects.get("a"), { x: 500, y: 300, width: 500, height: 300 });
+});
+
+test("toggling orientation flips the split the window sits in", () => {
+  const tree = build("a", "b");
+  const before = computeRects(tree, screen);
+  assert.equal(before.get("a").width, 500, "starts side by side");
+  const flipped = toggleOrientation(tree, "b");
+  const after = computeRects(flipped, screen);
+  assert.equal(after.get("a").width, 1000, "now stacked");
+  assert.equal(after.get("a").height, 300);
+  assert.equal(after.get("b").y, 300);
+});
+
+test("toggling orientation twice returns to where it started", () => {
+  const tree = build("a", "b", "c");
+  const there = toggleOrientation(tree, "c");
+  const back = toggleOrientation(there, "c");
+  assert.deepEqual(computeRects(back, screen), computeRects(tree, screen));
+});
+
+test("toggling orientation on a lone window is a no-op", () => {
+  const tree = build("a");
+  assert.deepEqual(toggleOrientation(tree, "a"), tree);
+});
+
+test("swapWithMaster puts the window in the first tile", () => {
+  const tree = build("a", "b", "c");
+  const order = windows(tree);
+  const swapped = swapWithMaster(tree, order[2]);
+  assert.equal(windows(swapped)[0], order[2]);
+  assert.equal(windows(swapped)[2], order[0]);
+});
+
+test("swapWithMaster is a no-op when you are already the master", () => {
+  const tree = build("a", "b");
+  const master = windows(tree)[0];
+  assert.deepEqual(swapWithMaster(tree, master), tree);
+});
+
+test("cycleNext walks tile order and wraps", () => {
+  const tree = build("a", "b", "c");
+  const order = windows(tree);
+  assert.equal(cycleNext(tree, order[0]), order[1]);
+  assert.equal(cycleNext(tree, order[2]), order[0]);
+  assert.equal(cycleNext(tree, order[0], -1), order[2]);
 });

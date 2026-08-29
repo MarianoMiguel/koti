@@ -21,6 +21,8 @@ const SCREENS = [
   { x: 0, y: 0, width: 400, height: 1200 }, // tall and narrow
 ];
 const OUTPUTS = ["eDP-1", "HDMI-1"];
+/** The gap the fuzzer builds its controller with; layouts are checked against it. */
+const GAP = 8;
 const APPS = ["editor", "browser", "chat", "terminal"];
 
 /** Deterministic PRNG, so a failing seed replays exactly. */
@@ -89,35 +91,75 @@ function checkCell(c, ws, out, screen, where) {
 
   const visible = res.windows.filter((w) => w.visible);
 
+  const fullscreen = ctl.fullScreenWindow(c, ws, out);
+  if (fullscreen !== null && live.includes(fullscreen)) {
+    const placed = res.windows.find((w) => w.id === fullscreen);
+    assert.ok(placed && placed.visible, `${where}: the fullscreen window must be visible`);
+    assert.deepEqual(
+      placed.rect, { ...screen },
+      `${where}: fullscreen must take the whole output`,
+    );
+    // It covers the others rather than hiding them, so the per-mode geometry
+    // checks below would see an intentional overlap. Nothing more to assert.
+    return res;
+  }
+
   if (mode === "tiling") {
-    for (const w of visible) {
+    // Windows lifted out of the tiling float above it and are allowed to
+    // overlap; only the tiled ones must partition the screen.
+    const arranged = visible.filter((w) => !ctl.isWindowFloating(c, ws, out, w.id));
+    for (const w of arranged) {
       assert.ok(
         within(w.rect, screen),
         `${where}: tile ${w.id} escaped the screen — ${JSON.stringify(w.rect)}`,
       );
     }
-    for (let i = 0; i < visible.length; i++) {
-      for (let j = i + 1; j < visible.length; j++) {
+    for (let i = 0; i < arranged.length; i++) {
+      for (let j = i + 1; j < arranged.length; j++) {
         assert.ok(
-          !overlaps(visible[i].rect, visible[j].rect),
-          `${where}: tiles ${visible[i].id} and ${visible[j].id} overlap`,
+          !overlaps(arranged[i].rect, arranged[j].rect),
+          `${where}: tiles ${arranged[i].id} and ${arranged[j].id} overlap`,
         );
       }
     }
   }
 
   if (mode === "scrolling") {
-    // Windows sit shoulder to shoulder on the strip, in order, with no gaps.
-    const ordered = res.windows;
-    for (let i = 1; i < ordered.length; i++) {
-      const prev = ordered[i - 1].rect;
-      const here = ordered[i].rect;
-      assert.equal(
-        here.x, prev.x + prev.width,
-        `${where}: the strip has a gap between ${ordered[i - 1].id} and ${ordered[i].id}`,
-      );
-      assert.equal(here.height, prev.height, `${where}: strip heights differ`);
+    // Columns sit shoulder to shoulder along the strip; the windows stacked
+    // inside a column share its x and divide its height with no gaps.
+    const cols = ctl.columns(c, ws, out);
+    const placed = new Map(res.windows.map((w) => [w.id, w.rect]));
+    assert.deepEqual(
+      cols.flatMap((col) => col.windows).sort(), [...live].sort(),
+      `${where}: the strip must hold exactly the live windows`,
+    );
+
+    let expectedX = null;
+    for (const col of cols) {
+      const first = placed.get(col.windows[0]);
+      assert.ok(first, `${where}: column head ${col.windows[0]} was not placed`);
+      if (expectedX !== null) {
+        assert.equal(first.x, expectedX, `${where}: gap between columns on the strip`);
+      }
+      expectedX = first.x + first.width;
+
+      let bottom = null;
+      for (const id of col.windows) {
+        const r = placed.get(id);
+        assert.equal(r.x, first.x, `${where}: ${id} left its column`);
+        assert.equal(r.width, col.width, `${where}: ${id} is not its column's width`);
+        if (bottom !== null) {
+          // Stacked windows are separated by exactly one gap — enough to read
+          // as separate windows, and no more.
+          assert.equal(r.y, bottom + GAP, `${where}: wrong spacing inside a column above ${id}`);
+        }
+        bottom = r.y + r.height;
+      }
+      if (col.windows.length) {
+        assert.equal(bottom, screen.y + screen.height, `${where}: column does not fill the height`);
+      }
     }
+
     for (const w of visible) {
       assert.ok(
         w.rect.x < screen.x + screen.width && w.rect.x + w.rect.width > screen.x,
@@ -202,16 +244,23 @@ function checkGlobal(c, screen, where) {
 }
 
 const OPERATIONS = [
-  "add", "remove", "focus", "switchMode", "cycleMode", "minimize", "restore",
+  // "add" appears several times on purpose: with this many operations an even
+  // mix keeps the window count near zero, and an empty layout proves nothing.
+  "add", "add", "add", "add", "remove", "focus", "switchMode", "cycleMode", "minimize", "restore",
   "drag", "resize", "action", "moveNeighbour", "focusNeighbour",
   "switchWorkspace", "cycleWorkspace", "moveToWorkspace", "newStage", "switchStage",
+  "cyclePolicy", "toggleFloating", "toggleFullScreen", "resizeActive",
+  "toggleSplit", "swapMaster",
+  "consume", "expel", "cycleColumnWidth", "centreColumn",
+  "cycleStage", "newStageFor", "mergeStage", "moveToOutput",
 ];
 
 function fuzz(seed, steps) {
   const rand = rng(seed);
-  const c = ctl.createController({ gap: 8, workspaceCount: 9 });
+  const c = ctl.createController({ gap: GAP, workspaceCount: 9 });
   let screen = SCREENS[0];
   let nextId = 0;
+  let busiest = 0;
   const alive = [];
 
   const someWindow = () => (alive.length ? pick(rand, alive) : null);
@@ -345,15 +394,101 @@ function fuzz(seed, steps) {
         if (stages.length) ctl.switchStage(c, ws, out, pick(rand, stages).id);
         break;
       }
+      case "cyclePolicy":
+        ctl.cycleTilingPolicy(c, ws, out, rand() < 0.5 ? 1 : -1);
+        break;
+      case "toggleFloating": {
+        const id = someWindow();
+        const home = id && cellOf(id);
+        if (home) ctl.toggleWindowFloating(c, home.ws, home.out, id, { screen });
+        break;
+      }
+      case "toggleFullScreen": {
+        const id = someWindow();
+        const home = id && cellOf(id);
+        if (home) ctl.toggleFullScreen(c, home.ws, home.out, id);
+        break;
+      }
+      case "resizeActive": {
+        const id = someWindow();
+        const home = id && cellOf(id);
+        if (home) {
+          ctl.resizeActive(
+            c, home.ws, home.out, id,
+            pick(rand, ["left", "right", "top", "bottom"]),
+            Math.floor((rand() - 0.5) * 300), { screen },
+          );
+        }
+        break;
+      }
+      case "toggleSplit": {
+        const id = someWindow();
+        const home = id && cellOf(id);
+        if (home) ctl.toggleSplitOrientation(c, home.ws, home.out, id);
+        break;
+      }
+      case "swapMaster": {
+        const id = someWindow();
+        const home = id && cellOf(id);
+        if (home) ctl.swapWithMaster(c, home.ws, home.out, id);
+        break;
+      }
+      case "consume": {
+        const id = someWindow();
+        const home = id && cellOf(id);
+        if (home) ctl.consumeIntoColumn(c, home.ws, home.out, id);
+        break;
+      }
+      case "expel": {
+        const id = someWindow();
+        const home = id && cellOf(id);
+        if (home) ctl.expelFromColumn(c, home.ws, home.out, id);
+        break;
+      }
+      case "cycleColumnWidth": {
+        const id = someWindow();
+        const home = id && cellOf(id);
+        if (home) {
+          ctl.cycleColumnWidth(c, home.ws, home.out, id, rand() < 0.5 ? 1 : -1, { screen });
+        }
+        break;
+      }
+      case "centreColumn": {
+        const id = someWindow();
+        const home = id && cellOf(id);
+        if (home) ctl.centerColumn(c, home.ws, home.out, id, { screen });
+        break;
+      }
+      case "cycleStage":
+        ctl.cycleStage(c, ws, out, rand() < 0.5 ? 1 : -1);
+        break;
+      case "newStageFor": {
+        const id = someWindow();
+        const home = id && cellOf(id);
+        if (home) ctl.moveWindowToNewStage(c, home.ws, home.out, id);
+        break;
+      }
+      case "mergeStage":
+        ctl.mergeActiveStage(c, ws, out, rand() < 0.5 ? 1 : -1);
+        break;
+      case "moveToOutput": {
+        const id = someWindow();
+        const home = id && cellOf(id);
+        if (!home) break;
+        const target = OUTPUTS.find((o) => o !== home.out);
+        ctl.moveWindowToOutput(c, home.out, target, id, { screen });
+        break;
+      }
     }
 
     // Outputs get unplugged and resolutions change; the layout must survive it.
     if (rand() < 0.05) screen = pick(rand, SCREENS);
 
+    busiest = Math.max(busiest, alive.length);
     checkGlobal(c, screen, where);
   }
 
-  return { windows: alive.length };
+  return { windows: alive.length, busiest };
 }
 
 test("every mode survives 400 random operations (seed 1)", () => {
@@ -368,9 +503,11 @@ test("every mode survives 400 random operations (seed 12345)", () => {
   fuzz(12345, 400);
 });
 
-test("a long run reaches a populated state rather than churning empty", () => {
+test("a long run exercises busy layouts, not just empty ones", () => {
+  // What matters is that the invariants were checked against real layouts —
+  // where the run happens to *end* is not interesting.
   const result = fuzz(777, 600);
-  assert.ok(result.windows > 0, "the fuzzer should end with windows alive");
+  assert.ok(result.busiest >= 5, `the fuzzer only ever reached ${result.busiest} windows`);
 });
 
 // A deeper sweep for when the layout engine changes shape — three seeds catch

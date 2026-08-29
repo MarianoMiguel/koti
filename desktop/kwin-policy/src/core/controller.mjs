@@ -20,12 +20,14 @@ import {
 } from "./mode-state.mjs";
 import * as floating from "./floating.mjs";
 import * as tree from "./tiling-tree.mjs";
+import * as tiling from "./tiling.mjs";
 import * as scrolling from "./scrolling.mjs";
 import * as stage from "./stage.mjs";
 import * as actions from "./actions.mjs";
 
 export { MODES, DEFAULT_MODE };
 export { ACTIONS, FRACTIONAL_LAYOUTS, SPECIAL_ACTIONS } from "./actions.mjs";
+export const TILING_POLICIES = tiling.POLICIES;
 
 const DEFAULTS = {
   gap: 8,
@@ -156,6 +158,12 @@ function ensureCell(ctl, workspaceId, outputId) {
       outputId,
       order: [], // arrival order; the spine every mode reconciles against
       excluded: new Set(), // present but not laid out — minimized, mostly
+      // Tiling: which arrangement, how wide the main column, which windows the
+      // user has lifted out of the tiling, and which one owns the screen.
+      policy: "automatic",
+      mainRatio: 0.5,
+      floating: new Set(),
+      fullscreenId: null,
       focusId: null,
       stacking: [], // bottom → top, floating and stage
       tree: null, // tiling
@@ -216,6 +224,8 @@ function detachFromCell(ctl, cell, id) {
   if (at === -1) return;
   cell.order.splice(at, 1);
   cell.excluded.delete(id);
+  cell.floating.delete(id);
+  if (cell.fullscreenId === id) cell.fullscreenId = null;
   cell.stacking = cell.stacking.filter((w) => w !== id);
   if (cell.focusId === id) {
     cell.focusId = cell.order[Math.min(at, cell.order.length - 1)] ?? null;
@@ -276,7 +286,7 @@ export function focusWindow(ctl, workspaceId, outputId, id, { screen } = {}) {
   }
 
   // Scrolling is the one mode where focus moves the world (PRD §13).
-  if (active === "scrolling" && screen && cell.strip.windows.some((w) => w.id === id)) {
+  if (active === "scrolling" && screen && scrolling.columnOf(cell.strip, id) !== -1) {
     cell.strip = scrolling.focusWindow(cell.strip, id, screen.width);
   }
   // Focusing a window in Stage mode switches to that window's stage.
@@ -329,9 +339,10 @@ function capture(ctl, cell, from, screen) {
   } else if (from === "tiling") {
     tree.windows(cell.tree).forEach((id, i) => rememberWindow(ctl.modes, id, { tilePosition: i }));
   } else if (from === "scrolling") {
-    cell.strip.windows.forEach((w, i) =>
-      rememberWindow(ctl.modes, w.id, { scrollOrder: i, scrollWidth: w.width }),
-    );
+    scrolling.windowIds(cell.strip).forEach((id, i) => {
+      const column = cell.strip.columns[scrolling.columnOf(cell.strip, id)];
+      rememberWindow(ctl.modes, id, { scrollOrder: i, scrollWidth: column.width });
+    });
   } else if (from === "stage") {
     for (const s of cell.stages.stages) {
       for (const id of s.windowIds) rememberWindow(ctl.modes, id, { stageId: s.id });
@@ -349,11 +360,12 @@ function reconcile(ctl, cell, screen) {
   const active = mode(ctl, cell.workspaceId, cell.outputId);
   const present = new Set(laidOut(cell));
   if (active === "tiling") {
+    const inTiling = new Set(tiled(cell));
     for (const id of tree.windows(cell.tree)) {
-      if (!present.has(id)) cell.tree = tree.removeWindow(cell.tree, id);
+      if (!inTiling.has(id)) cell.tree = tree.removeWindow(cell.tree, id);
     }
     const have = new Set(tree.windows(cell.tree));
-    const missing = laidOut(cell).filter((id) => !have.has(id));
+    const missing = tiled(cell).filter((id) => !have.has(id));
     // Remembered tile positions first, so Tiling → Floating → Tiling comes back
     // in the order the user left it rather than in arrival order.
     missing.sort((a, b) => tilePos(ctl, a) - tilePos(ctl, b));
@@ -365,10 +377,10 @@ function reconcile(ctl, cell, screen) {
       });
     }
   } else if (active === "scrolling") {
-    for (const w of cell.strip.windows.slice()) {
-      if (!present.has(w.id)) cell.strip = scrolling.removeWindow(cell.strip, w.id);
+    for (const id of scrolling.windowIds(cell.strip)) {
+      if (!present.has(id)) cell.strip = scrolling.removeWindow(cell.strip, id);
     }
-    const have = new Set(cell.strip.windows.map((w) => w.id));
+    const have = new Set(scrolling.windowIds(cell.strip));
     const missing = laidOut(cell).filter((id) => !have.has(id));
     missing.sort((a, b) => scrollPos(ctl, a) - scrollPos(ctl, b));
     for (const id of missing) {
@@ -474,11 +486,26 @@ export function computeLayout(ctl, workspaceId, outputId, { screen }) {
   const cell = ensureCell(ctl, workspaceId, outputId);
   reconcile(ctl, cell, screen);
   const active = mode(ctl, workspaceId, outputId);
+
   let placed;
   if (active === "tiling") placed = layoutTiling(ctl, cell, screen);
   else if (active === "scrolling") placed = layoutScrolling(ctl, cell, screen);
   else if (active === "stage") placed = layoutStage(ctl, cell, screen);
   else placed = layoutFloating(ctl, cell, screen);
+
+  // Fullscreen covers rather than hides: the window takes the whole output and
+  // everything else keeps its place underneath, which is what every compositor
+  // does and what makes leaving fullscreen instant. Hiding the others instead
+  // meant un-minimizing them all on the way out, and KWin restores a window's
+  // pre-minimize geometry *after* we set ours, so the layout came back wrong.
+  if (cell.fullscreenId && laidOut(cell).includes(cell.fullscreenId)) {
+    placed = placed.map((placement) =>
+      placement.id === cell.fullscreenId
+        ? { id: placement.id, rect: { ...screen }, visible: true, fullscreen: true }
+        : placement,
+    );
+  }
+
   return { mode: active, windows: placed, stacking: cell.stacking.slice() };
 }
 
@@ -499,10 +526,36 @@ function layoutFloating(ctl, cell, screen) {
 
 function layoutTiling(ctl, cell, screen) {
   const inner = inset(screen, ctl.options.gap);
-  const rects = tree.computeRects(cell.tree, inner, ctl.options.gap);
-  return laidOut(cell)
+  // The tree holds the *order* for every policy, not just the automatic one:
+  // swapping with master or moving a tile reorders it, and the fixed policies
+  // then arrange that order into columns, rows or a main-stack.
+  const order = tree.windows(cell.tree);
+  const rects = cell.policy === "automatic"
+    ? tree.computeRects(cell.tree, inner, ctl.options.gap)
+    : tiling.computeTiling({
+        screen: inner,
+        windows: order,
+        policy: cell.policy,
+        gap: ctl.options.gap,
+        mainRatio: cell.mainRatio,
+      });
+
+  const placed = order
     .filter((id) => rects.has(id))
     .map((id) => ({ id, rect: rects.get(id), visible: true }));
+
+  // Windows lifted out of the tiling sit above it, at their own geometry.
+  const lifted = laidOut(cell).filter((id) => cell.floating.has(id));
+  if (lifted.length) {
+    const remembered = new Map();
+    for (const id of lifted) {
+      const mem = recallWindow(ctl.modes, id);
+      if (mem?.floatingGeometry) remembered.set(id, mem.floatingGeometry);
+    }
+    const free = floating.computeFloating({ screen, windows: lifted, remembered });
+    for (const id of lifted) placed.push({ id, rect: free.get(id), visible: true });
+  }
+  return placed;
 }
 
 function layoutScrolling(ctl, cell, screen) {
@@ -510,6 +563,7 @@ function layoutScrolling(ctl, cell, screen) {
     x: screen.x,
     y: screen.y,
     height: screen.height,
+    gap: ctl.options.gap,
   });
   const left = screen.x;
   const right = screen.x + screen.width;
@@ -729,22 +783,22 @@ export function quadrantOf(rect, point) {
  * window is lifted out, everything past its old slot shifts down by one.
  */
 function reorderStripTo(strip, id, stripX) {
-  const at = strip.windows.findIndex((w) => w.id === id);
+  const at = scrolling.columnOf(strip, id);
   if (at === -1) return strip;
 
   let cursor = 0;
-  let target = strip.windows.length; // dropped past the end
-  for (let i = 0; i < strip.windows.length; i++) {
-    const w = strip.windows[i];
-    if (stripX < cursor + w.width / 2) {
+  let target = strip.columns.length; // dropped past the end
+  for (let i = 0; i < strip.columns.length; i++) {
+    const column = strip.columns[i];
+    if (stripX < cursor + column.width / 2) {
       target = i;
       break;
     }
-    cursor += w.width;
+    cursor += column.width;
   }
 
   const to = target > at ? target - 1 : target;
-  return scrolling.moveWindow(strip, id, to - at);
+  return scrolling.moveColumn(strip, at, to - at);
 }
 
 // --- directional navigation (PRD §12: keyboard focus and movement) ---------
@@ -763,10 +817,8 @@ export function focusNeighbour(ctl, workspaceId, outputId, id, direction, { scre
     );
   }
   if (active === "scrolling") {
-    // The strip only runs one way, so up and down have no neighbour on it.
-    if (direction === "left") return scrolling.neighbor(cell.strip, id, -1);
-    if (direction === "right") return scrolling.neighbor(cell.strip, id, 1);
-    return null;
+    // Left and right move between columns; up and down move inside one.
+    return scrolling.neighbor(cell.strip, id, direction);
   }
   return null;
 }
@@ -780,10 +832,203 @@ export function moveNeighbour(ctl, workspaceId, outputId, id, direction, { scree
       cell.tree, id, direction, inset(screen, ctl.options.gap), ctl.options.gap,
     );
   } else if (active === "scrolling") {
-    if (direction === "left") cell.strip = scrolling.moveWindow(cell.strip, id, -1);
-    if (direction === "right") cell.strip = scrolling.moveWindow(cell.strip, id, 1);
+    if (direction === "left" || direction === "right") {
+      cell.strip = scrolling.moveColumn(
+        cell.strip, scrolling.columnOf(cell.strip, id), direction === "right" ? 1 : -1,
+      );
+    } else {
+      cell.strip = scrolling.moveWindowInColumn(cell.strip, id, direction === "down" ? 1 : -1);
+    }
   }
   return cell;
+}
+
+// --- tiling controls (hyprland parity) --------------------------------------
+
+/** Windows the tiling actually arranges: live, and not lifted out by the user. */
+function tiled(cell) {
+  return laidOut(cell).filter((id) => !cell.floating.has(id));
+}
+
+export function tilingPolicy(ctl, workspaceId, outputId) {
+  return ensureCell(ctl, workspaceId, outputId).policy;
+}
+
+export function setTilingPolicy(ctl, workspaceId, outputId, policy) {
+  if (!tiling.POLICIES.includes(policy)) throw new RangeError(`unknown tiling policy: ${policy}`);
+  ensureCell(ctl, workspaceId, outputId).policy = policy;
+  return policy;
+}
+
+/** Step through automatic → columns → rows → main-stack and back. */
+export function cycleTilingPolicy(ctl, workspaceId, outputId, delta = 1) {
+  const cell = ensureCell(ctl, workspaceId, outputId);
+  const at = tiling.POLICIES.indexOf(cell.policy);
+  const next = (at + delta + tiling.POLICIES.length) % tiling.POLICIES.length;
+  cell.policy = tiling.POLICIES[next];
+  return cell.policy;
+}
+
+/** Flip the split this window sits in — hyprland's togglesplit. */
+export function toggleSplitOrientation(ctl, workspaceId, outputId, id) {
+  const cell = ensureCell(ctl, workspaceId, outputId);
+  if (mode(ctl, workspaceId, outputId) !== "tiling") return cell;
+  cell.tree = tree.toggleOrientation(cell.tree, id);
+  return cell;
+}
+
+export function swapWithMaster(ctl, workspaceId, outputId, id) {
+  const cell = ensureCell(ctl, workspaceId, outputId);
+  if (mode(ctl, workspaceId, outputId) !== "tiling") return cell;
+  cell.tree = tree.swapWithMaster(cell.tree, id);
+  return cell;
+}
+
+/** The next window in tile order, wrapping — hyprland's cyclenext. */
+export function cycleTile(ctl, workspaceId, outputId, id, delta = 1) {
+  const cell = ensureCell(ctl, workspaceId, outputId);
+  if (mode(ctl, workspaceId, outputId) !== "tiling") return null;
+  return tree.cycleNext(cell.tree, id, delta);
+}
+
+/**
+ * Lift a window out of the tiling so it floats above it, or drop it back in —
+ * hyprland's togglefloating. The escape hatch every tiling WM needs: some
+ * windows are dialogs in all but type.
+ */
+export function toggleWindowFloating(ctl, workspaceId, outputId, id, { screen } = {}) {
+  const cell = ensureCell(ctl, workspaceId, outputId);
+  if (!cell.order.includes(id)) return false;
+  if (cell.floating.has(id)) {
+    cell.floating.delete(id);
+  } else {
+    cell.floating.add(id);
+    cell.tree = tree.removeWindow(cell.tree, id);
+  }
+  reconcile(ctl, cell, screen);
+  return cell.floating.has(id);
+}
+
+export function isWindowFloating(ctl, workspaceId, outputId, id) {
+  return ensureCell(ctl, workspaceId, outputId).floating.has(id);
+}
+
+/**
+ * Give one window the whole screen and hide the rest, or give it back. Works
+ * in every mode, because "make this the only thing" is not a tiling idea.
+ */
+export function toggleFullScreen(ctl, workspaceId, outputId, id) {
+  const cell = ensureCell(ctl, workspaceId, outputId);
+  if (!cell.order.includes(id)) return null;
+  cell.fullscreenId = cell.fullscreenId === id ? null : id;
+  return cell.fullscreenId;
+}
+
+export function fullScreenWindow(ctl, workspaceId, outputId) {
+  return ensureCell(ctl, workspaceId, outputId).fullscreenId;
+}
+
+/**
+ * Keyboard resize — hyprland's resizeactive. In the tree policies this drags
+ * the underlying split; in the fixed policies there is no split to drag, so it
+ * moves the main column's ratio instead.
+ */
+export function resizeActive(ctl, workspaceId, outputId, id, edge, deltaPx, { screen }) {
+  const cell = ensureCell(ctl, workspaceId, outputId);
+  const active = mode(ctl, workspaceId, outputId);
+
+  if (active === "scrolling") {
+    const at = scrolling.columnOf(cell.strip, id);
+    if (at === -1) return cell;
+    const width = Math.max(120, cell.strip.columns[at].width + (edge === "left" ? -deltaPx : deltaPx));
+    cell.strip = scrolling.setColumnWidth(cell.strip, at, width);
+    rememberWindow(ctl.modes, id, { scrollWidth: width });
+    return cell;
+  }
+
+  if (active !== "tiling") return cell;
+
+  if (cell.policy === "automatic") {
+    cell.tree = tree.resizeEdge(
+      cell.tree, id, edge, deltaPx, inset(screen, ctl.options.gap), ctl.options.gap,
+    );
+    return cell;
+  }
+  if (edge === "left" || edge === "right") {
+    const span = Math.max(1, screen.width - ctl.options.gap * 2);
+    const grow = edge === "right" ? deltaPx : -deltaPx;
+    cell.mainRatio = Math.max(0.1, Math.min(0.9, cell.mainRatio + grow / span));
+  }
+  return cell;
+}
+
+// --- scrolling controls (niri parity) ---------------------------------------
+
+function scrollingCell(ctl, workspaceId, outputId) {
+  if (mode(ctl, workspaceId, outputId) !== "scrolling") return null;
+  return ensureCell(ctl, workspaceId, outputId);
+}
+
+/** Pull the next column's window into this one — niri's consume. */
+export function consumeIntoColumn(ctl, workspaceId, outputId, id) {
+  const cell = scrollingCell(ctl, workspaceId, outputId);
+  if (!cell) return false;
+  const at = scrolling.columnOf(cell.strip, id);
+  if (at === -1) return false;
+  const before = cell.strip;
+  cell.strip = scrolling.consume(cell.strip, at);
+  return cell.strip !== before;
+}
+
+/** Push a window out of its column into one of its own — niri's expel. */
+export function expelFromColumn(ctl, workspaceId, outputId, id) {
+  const cell = scrollingCell(ctl, workspaceId, outputId);
+  if (!cell) return false;
+  const before = cell.strip;
+  cell.strip = scrolling.expel(cell.strip, id);
+  return cell.strip !== before;
+}
+
+/** Step a column through the preset widths — niri's switch-preset-column-width. */
+export function cycleColumnWidth(ctl, workspaceId, outputId, id, delta, { screen }) {
+  const cell = scrollingCell(ctl, workspaceId, outputId);
+  if (!cell) return null;
+  const at = scrolling.columnOf(cell.strip, id);
+  if (at === -1) return null;
+  cell.strip = scrolling.cyclePresetWidth(cell.strip, at, screen.width, delta);
+  const width = cell.strip.columns[at].width;
+  for (const member of cell.strip.columns[at].windows) {
+    rememberWindow(ctl.modes, member, { scrollWidth: width });
+  }
+  return width;
+}
+
+/** Put the focused column in the middle of the viewport. */
+export function centerColumn(ctl, workspaceId, outputId, id, { screen }) {
+  const cell = scrollingCell(ctl, workspaceId, outputId);
+  if (!cell) return false;
+  const at = scrolling.columnOf(cell.strip, id);
+  if (at === -1) return false;
+  cell.strip = scrolling.centerColumn(cell.strip, at, screen.width);
+  return true;
+}
+
+/** The window at one end of the strip, for focus-first / focus-last. */
+export function edgeWindow(ctl, workspaceId, outputId, which) {
+  const cell = scrollingCell(ctl, workspaceId, outputId);
+  if (!cell) return null;
+  return which === "first"
+    ? scrolling.firstWindow(cell.strip)
+    : scrolling.lastWindow(cell.strip);
+}
+
+/** How the strip is arranged right now, for tests and for an indicator. */
+export function columns(ctl, workspaceId, outputId) {
+  return ensureCell(ctl, workspaceId, outputId).strip.columns.map((c) => ({
+    windows: c.windows.slice(),
+    width: c.width,
+    focus: c.focus,
+  }));
 }
 
 // --- window actions (Raycast-style placement) -------------------------------
@@ -823,11 +1068,114 @@ export function stages(ctl, workspaceId, outputId) {
   return ensureCell(ctl, workspaceId, outputId).stages;
 }
 
+/**
+ * Make a stage the active one, and put focus on it.
+ *
+ * Focus has to move too: reconcile derives the active stage from the focused
+ * window, so a switch that left focus behind would be undone on the very next
+ * layout. Moving focus is also what the user means by "switch stage".
+ */
 export function switchStage(ctl, workspaceId, outputId, stageId) {
   const cell = ensureCell(ctl, workspaceId, outputId);
   const result = stage.switchStage(cell.stages, stageId);
   cell.stages = result.state;
+  focusStage(ctl, cell, stageId);
   return result;
+}
+
+/** Put focus on a stage's most recently raised window. */
+function focusStage(ctl, cell, stageId) {
+  const target = cell.stages.stages.find((s) => s.id === stageId);
+  if (!target || target.windowIds.length === 0) return;
+  const live = target.windowIds.filter((id) => !cell.excluded.has(id));
+  const pool = live.length ? live : target.windowIds;
+  const raised = cell.stacking.filter((id) => pool.includes(id));
+  cell.focusId = raised.length ? raised[raised.length - 1] : pool[pool.length - 1];
+}
+
+/** Step to the next or previous stage on this cell (Stage Manager's rail). */
+export function cycleStage(ctl, workspaceId, outputId, delta = 1) {
+  const cell = ensureCell(ctl, workspaceId, outputId);
+  const stages = cell.stages.stages;
+  if (stages.length < 2) return cell.stages.activeId;
+  const at = stages.findIndex((s) => s.id === cell.stages.activeId);
+  const next = stages[((at === -1 ? 0 : at) + delta + stages.length) % stages.length];
+  cell.stages = stage.switchStage(cell.stages, next.id).state;
+  focusStage(ctl, cell, next.id);
+  return cell.stages.activeId;
+}
+
+/**
+ * Pull a window out onto a stage of its own — the counterpart to dragging one
+ * into a stage. Its remembered stage is cleared so reconcile does not put it
+ * straight back where it came from.
+ */
+export function moveWindowToNewStage(ctl, workspaceId, outputId, id, name = "") {
+  const cell = ensureCell(ctl, workspaceId, outputId);
+  if (!cell.order.includes(id)) return null;
+  const owner = stage.stageOf(cell.stages, id);
+  cell.stages = stage.ungroupWindow(cell.stages, id);
+  if (owner) cell.stages = dropEmptyStages(cell.stages, new Set([owner.id]));
+  cell.stages = stage.createStage(cell.stages, name);
+  const fresh = cell.stages.stages[cell.stages.stages.length - 1];
+  cell.stages = stage.assignWindow(cell.stages, id, fresh.id);
+  cell.stages = { ...cell.stages, activeId: fresh.id };
+  cell.focusId = id;
+  rememberWindow(ctl.modes, id, { stageId: fresh.id });
+  return fresh.id;
+}
+
+/** Put a window on the stage next door — Stage Manager's "group with". */
+export function moveWindowToStage(ctl, workspaceId, outputId, id, stageId) {
+  const cell = ensureCell(ctl, workspaceId, outputId);
+  if (!cell.order.includes(id)) return false;
+  if (!cell.stages.stages.some((st) => st.id === stageId)) return false;
+  const owner = stage.stageOf(cell.stages, id);
+  cell.stages = stage.assignWindow(cell.stages, id, stageId);
+  if (owner && owner.id !== stageId) {
+    cell.stages = dropEmptyStages(cell.stages, new Set([owner.id]));
+  }
+  rememberWindow(ctl.modes, id, { stageId });
+  return true;
+}
+
+/** Fold the active stage into its neighbour — Stage Manager's merge. */
+export function mergeActiveStage(ctl, workspaceId, outputId, delta = 1) {
+  const cell = ensureCell(ctl, workspaceId, outputId);
+  const stages = cell.stages.stages;
+  if (stages.length < 2) return false;
+  const at = stages.findIndex((st) => st.id === cell.stages.activeId);
+  if (at === -1) return false;
+  const into = stages[(at + delta + stages.length) % stages.length];
+  const from = stages[at];
+  cell.stages = stage.mergeStages(cell.stages, from.id, into.id);
+  for (const id of from.windowIds) rememberWindow(ctl.modes, id, { stageId: into.id });
+  return true;
+}
+
+/**
+ * Move a window to another monitor, onto whatever workspace that monitor is
+ * showing — hyprland's `movewindow mon:`.
+ */
+export function moveWindowToOutput(ctl, fromOutput, toOutput, id, { screen } = {}) {
+  if (fromOutput === toOutput) return null;
+  const from = workspaceOf(ctl, fromOutput, id);
+  if (from === null) return null;
+  const target = currentWorkspace(ctl, toOutput);
+
+  const source = ensureCell(ctl, from, fromOutput);
+  const wasExcluded = source.excluded.has(id);
+  detachFromCell(ctl, source, id);
+
+  const destination = ensureCell(ctl, target, toOutput);
+  destination.order.push(id);
+  destination.stacking = floating.raiseWindow(destination.stacking, id);
+  destination.focusId = id;
+  if (wasExcluded) destination.excluded.add(id);
+  rememberWindow(ctl.modes, id, { output: toOutput, workspace: target });
+  reconcile(ctl, destination, screen);
+  reconcile(ctl, source, screen);
+  return { outputId: toOutput, workspaceId: target };
 }
 
 export function newStage(ctl, workspaceId, outputId, name) {
@@ -848,6 +1196,10 @@ export function serialize(ctl) {
         outputId: cell.outputId,
         order: cell.order,
         excluded: [...cell.excluded],
+        policy: cell.policy,
+        mainRatio: cell.mainRatio,
+        floating: [...cell.floating],
+        fullscreenId: cell.fullscreenId,
         focusId: cell.focusId,
         stacking: cell.stacking,
         tree: cell.tree,
@@ -876,6 +1228,10 @@ export function deserialize(json) {
       outputId: cell.outputId,
       order: cell.order ?? [],
       excluded: new Set(cell.excluded ?? []),
+      policy: cell.policy ?? "automatic",
+      mainRatio: cell.mainRatio ?? 0.5,
+      floating: new Set(cell.floating ?? []),
+      fullscreenId: cell.fullscreenId ?? null,
       focusId: cell.focusId ?? null,
       stacking: cell.stacking ?? [],
       tree: cell.tree ?? null,

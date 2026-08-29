@@ -159,6 +159,39 @@ export function focusDirection(tree, id, dir, screen, gap = 0) {
   return best ? best.id : null;
 }
 
+/**
+ * Flip the orientation of the split a window sits in — hyprland's
+ * `togglesplit`. Side-by-side becomes stacked and back, for the *deepest*
+ * split containing this window, which is the one the user is looking at.
+ */
+export function toggleOrientation(tree, id) {
+  const path = pathTo(tree, id);
+  if (!path || path.length === 0) return tree;
+  const parent = path[path.length - 1].node;
+  return replaceNode(tree, parent, { ...parent, dir: parent.dir === "h" ? "v" : "h" });
+}
+
+/**
+ * Swap a window with the first tile in the layout — the "master", in the
+ * vocabulary every tiling WM shares even when the tree does not have one.
+ */
+export function swapWithMaster(tree, id) {
+  const order = windows(tree);
+  if (order.length < 2) return tree;
+  const master = order[0];
+  if (master === id) return tree;
+  return swapWindows(tree, master, id);
+}
+
+/** The window after `id` in tile order, wrapping — hyprland's `cyclenext`. */
+export function cycleNext(tree, id, delta = 1) {
+  const order = windows(tree);
+  if (order.length === 0) return null;
+  const at = order.indexOf(id);
+  if (at === -1) return order[0];
+  return order[(at + delta + order.length) % order.length];
+}
+
 /** Keyboard move: swap with the spatial neighbor in `dir` (no-op at edges). */
 export function moveDirection(tree, id, dir, screen, gap = 0) {
   const other = focusDirection(tree, id, dir, screen, gap);

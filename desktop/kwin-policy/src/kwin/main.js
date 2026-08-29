@@ -41,6 +41,9 @@ var applying = false;
 //                        is theirs and stays minimized.
 var savedFlags = {};
 var minimizedByUs = {};
+// Windows we asked KWin to make fullscreen, so we can tell them apart from an
+// app that went fullscreen on its own (a video, a game) and undo only ours.
+var fullscreenByUs = {};
 
 // --- identity ---------------------------------------------------------------
 
@@ -64,7 +67,9 @@ function isManaged(window) {
     // those would drop them out of management the moment they were hidden, and
     // they would never come back.
     if (window.skipTaskbar && !savedFlags[windowId(window)]) return false;
-    if (window.fullScreen) return false; // a fullscreen window owns its output
+    // An app that went fullscreen by itself owns its output and we stay out of
+    // the way. One *we* made fullscreen is still ours to manage.
+    if (window.fullScreen && !fullscreenByUs[windowId(window)]) return false;
     return true;
 }
 
@@ -163,6 +168,21 @@ function applyLayout(cell, options) {
             } else {
                 showWindow(window, placement.id);
             }
+            // Fullscreen goes through KWin's own mechanism rather than a
+            // screen-sized rect, so it covers the panels the way fullscreen
+            // should and gets the compositor's fullscreen path.
+            if (placement.fullscreen) {
+                if (!window.fullScreen) {
+                    fullscreenByUs[placement.id] = true;
+                    window.fullScreen = true;
+                }
+                continue;
+            }
+            if (fullscreenByUs[placement.id]) {
+                delete fullscreenByUs[placement.id];
+                if (window.fullScreen) window.fullScreen = false;
+            }
+
             if (!placement.rect) continue;
             if (!window.moveable && !window.resizeable) continue;
             setGeometry(window, placement.rect);
@@ -416,6 +436,7 @@ function detach(window) {
     delete connected[id];
     delete savedFlags[id];
     delete minimizedByUs[id];
+    delete fullscreenByUs[id];
     controller.removeWindow(ctl, cell.workspaceId, cell.outputId, id);
     applyLayout(cell, {});
 }
@@ -665,6 +686,165 @@ function moveActiveToWorkspace(index, follow) {
     else focusOnOutput(outputId);
 }
 
+// --- mode controls (hyprland / niri / Stage Manager parity) -----------------
+
+/**
+ * Run something against the focused window and its cell. Every mode control
+ * needs the same three things — the window, which cell it is on, and that
+ * cell's work area — and none of them should do anything without a window.
+ */
+function withActive(fn) {
+    var window = workspace.activeWindow;
+    if (!window || !isManaged(window)) return;
+    var cell = cellOf(window);
+    fn(windowId(window), cell, screenOf(cell), window);
+}
+
+/** Re-apply and, when the operation moved focus, follow it. */
+function afterControl(cell, focusId) {
+    applyOutput(cell.outputId, { force: true });
+    if (!focusId) return;
+    var window = windowByIdOnCell(focusId);
+    if (window && !window.minimized) workspace.activeWindow = window;
+}
+
+function toggleFullScreen() {
+    withActive(function (id, cell) {
+        controller.toggleFullScreen(ctl, cell.workspaceId, cell.outputId, id);
+        afterControl(cell);
+    });
+}
+
+function toggleFloating() {
+    withActive(function (id, cell, screen) {
+        var floating = controller.toggleWindowFloating(
+            ctl, cell.workspaceId, cell.outputId, id, { screen: screen });
+        log((floating ? "lifted " : "tiled ") + id);
+        afterControl(cell);
+    });
+}
+
+function toggleSplit() {
+    withActive(function (id, cell) {
+        controller.toggleSplitOrientation(ctl, cell.workspaceId, cell.outputId, id);
+        afterControl(cell);
+    });
+}
+
+function cyclePolicy(delta) {
+    withActive(function (id, cell) {
+        var policy = controller.cycleTilingPolicy(ctl, cell.workspaceId, cell.outputId, delta);
+        log("tiling policy " + policy);
+        afterControl(cell);
+    });
+}
+
+function swapWithMaster() {
+    withActive(function (id, cell) {
+        controller.swapWithMaster(ctl, cell.workspaceId, cell.outputId, id);
+        afterControl(cell);
+    });
+}
+
+function cycleTile(delta) {
+    withActive(function (id, cell) {
+        var next = controller.cycleTile(ctl, cell.workspaceId, cell.outputId, id, delta);
+        if (next) afterControl(cell, next);
+    });
+}
+
+function resizeActive(edge, deltaPx) {
+    withActive(function (id, cell, screen) {
+        controller.resizeActive(ctl, cell.workspaceId, cell.outputId, id, edge, deltaPx, {
+            screen: screen,
+        });
+        afterControl(cell);
+    });
+}
+
+function consumeIntoColumn() {
+    withActive(function (id, cell) {
+        if (controller.consumeIntoColumn(ctl, cell.workspaceId, cell.outputId, id)) {
+            afterControl(cell);
+        }
+    });
+}
+
+function expelFromColumn() {
+    withActive(function (id, cell) {
+        if (controller.expelFromColumn(ctl, cell.workspaceId, cell.outputId, id)) {
+            afterControl(cell);
+        }
+    });
+}
+
+function cycleColumnWidth(delta) {
+    withActive(function (id, cell, screen) {
+        controller.cycleColumnWidth(ctl, cell.workspaceId, cell.outputId, id, delta, {
+            screen: screen,
+        });
+        afterControl(cell);
+    });
+}
+
+function centreColumn() {
+    withActive(function (id, cell, screen) {
+        controller.centerColumn(ctl, cell.workspaceId, cell.outputId, id, { screen: screen });
+        afterControl(cell);
+    });
+}
+
+function focusStripEdge(which) {
+    withActive(function (id, cell) {
+        var target = controller.edgeWindow(ctl, cell.workspaceId, cell.outputId, which);
+        if (target) afterControl(cell, target);
+    });
+}
+
+function cycleStage(delta) {
+    withActive(function (id, cell) {
+        controller.cycleStage(ctl, cell.workspaceId, cell.outputId, delta);
+        afterControl(cell, controller.focusedWindow(ctl, cell.workspaceId, cell.outputId));
+    });
+}
+
+function moveToNewStage() {
+    withActive(function (id, cell) {
+        controller.moveWindowToNewStage(ctl, cell.workspaceId, cell.outputId, id);
+        afterControl(cell, id);
+    });
+}
+
+function mergeStage(delta) {
+    withActive(function (id, cell) {
+        if (controller.mergeActiveStage(ctl, cell.workspaceId, cell.outputId, delta)) {
+            afterControl(cell);
+        }
+    });
+}
+
+/** hyprland's `movewindow mon:` — send the window to the next monitor. */
+function moveToOutput(delta) {
+    var screens = workspace.screens;
+    if (screens.length < 2) return;
+    withActive(function (id, cell) {
+        var at = -1;
+        for (var i = 0; i < screens.length; i++) {
+            if (String(screens[i].name) === cell.outputId) at = i;
+        }
+        if (at === -1) return;
+        var target = String(screens[(at + delta + screens.length) % screens.length].name);
+        var landed = controller.moveWindowToOutput(ctl, cell.outputId, target, id, {
+            screen: screenOf({ workspaceId: controller.currentWorkspace(ctl, target), outputId: target }),
+        });
+        if (!landed) return;
+        applyOutput(cell.outputId, { force: true });
+        applyOutput(target, { force: true });
+        var window = windowByIdOnCell(id);
+        if (window) workspace.activeWindow = window;
+    });
+}
+
 // --- placement actions (Raycast-style) --------------------------------------
 
 /** "almost-maximize" → "Almost Maximize", for the shortcut's display name. */
@@ -783,6 +963,66 @@ function bindShortcuts() {
         "Meta+Ctrl+Right", function () { cycleWorkspace(1); });
     registerShortcut("Koti Workspace Previous", "Koti: previous workspace on this monitor",
         "Meta+Ctrl+Left", function () { cycleWorkspace(-1); });
+    registerShortcut("Koti Move To Next Monitor", "Koti: move the window to the next monitor",
+        "Meta+Shift+Period", function () { moveToOutput(1); });
+    registerShortcut("Koti Move To Previous Monitor", "Koti: move the window to the previous monitor",
+        "Meta+Shift+Comma", function () { moveToOutput(-1); });
+
+    // Mode controls. The defaults sit on Meta+Alt because Meta+letter is
+    // crowded with KDE's own bindings; every one of them is rebindable in
+    // System Settings → Shortcuts → KWin.
+    registerShortcut("Koti Toggle Fullscreen", "Koti: give this window the whole screen",
+        "Meta+Alt+F", toggleFullScreen);
+    registerShortcut("Koti Toggle Floating", "Koti: lift this window out of the tiling",
+        "Meta+Alt+V", toggleFloating);
+    registerShortcut("Koti Toggle Split", "Koti: flip the split this window sits in",
+        "Meta+Alt+S", toggleSplit);
+    registerShortcut("Koti Cycle Layout", "Koti: next tiling arrangement",
+        "Meta+Alt+Space", function () { cyclePolicy(1); });
+    registerShortcut("Koti Cycle Layout Back", "Koti: previous tiling arrangement",
+        "", function () { cyclePolicy(-1); });
+    registerShortcut("Koti Swap With Master", "Koti: swap this window with the first tile",
+        "Meta+Alt+Return", swapWithMaster);
+    registerShortcut("Koti Focus Next Tile", "Koti: focus the next tile",
+        "", function () { cycleTile(1); });
+    registerShortcut("Koti Focus Previous Tile", "Koti: focus the previous tile",
+        "", function () { cycleTile(-1); });
+
+    var resizeStep = 80;
+    registerShortcut("Koti Grow Width", "Koti: widen the window", "",
+        function () { resizeActive("right", resizeStep); });
+    registerShortcut("Koti Shrink Width", "Koti: narrow the window", "",
+        function () { resizeActive("right", -resizeStep); });
+    registerShortcut("Koti Grow Height", "Koti: make the window taller", "",
+        function () { resizeActive("bottom", resizeStep); });
+    registerShortcut("Koti Shrink Height", "Koti: make the window shorter", "",
+        function () { resizeActive("bottom", -resizeStep); });
+
+    // Scrolling (niri).
+    registerShortcut("Koti Consume Into Column", "Koti: pull the next window into this column",
+        "Meta+Alt+C", consumeIntoColumn);
+    registerShortcut("Koti Expel From Column", "Koti: push this window out of its column",
+        "Meta+Alt+X", expelFromColumn);
+    registerShortcut("Koti Cycle Column Width", "Koti: next preset column width",
+        "Meta+Alt+R", function () { cycleColumnWidth(1); });
+    registerShortcut("Koti Cycle Column Width Back", "Koti: previous preset column width",
+        "", function () { cycleColumnWidth(-1); });
+    registerShortcut("Koti Centre Column", "Koti: centre this column in the viewport",
+        "Meta+Alt+M", centreColumn);
+    registerShortcut("Koti Focus First Column", "Koti: focus the first column",
+        "Meta+Alt+Home", function () { focusStripEdge("first"); });
+    registerShortcut("Koti Focus Last Column", "Koti: focus the last column",
+        "Meta+Alt+End", function () { focusStripEdge("last"); });
+
+    // Stage Manager.
+    registerShortcut("Koti Next Stage", "Koti: switch to the next stage",
+        "Meta+Alt+BracketRight", function () { cycleStage(1); });
+    registerShortcut("Koti Previous Stage", "Koti: switch to the previous stage",
+        "Meta+Alt+BracketLeft", function () { cycleStage(-1); });
+    registerShortcut("Koti Move To New Stage", "Koti: put this window on a stage of its own",
+        "Meta+Alt+N", moveToNewStage);
+    registerShortcut("Koti Merge Stage", "Koti: merge this stage into the next one",
+        "Meta+Alt+G", function () { mergeStage(1); });
 
     var directions = ["left", "right", "up", "down"];
     var keys = ["Left", "Right", "Up", "Down"];
