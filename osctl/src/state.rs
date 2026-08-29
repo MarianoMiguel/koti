@@ -44,43 +44,82 @@ pub fn derive(checks: &[Check]) -> SecurityState {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::audit::{run, MockProbes};
-
-    fn probes(selinux: Option<bool>, secure_boot: Option<bool>, customizer: Option<bool>) -> MockProbes {
-        MockProbes {
-            selinux,
-            secure_boot,
-            customizer,
-        }
-    }
+    use crate::audit::{run, BootedImage, MockProbes};
 
     #[test]
     fn all_invariants_pass_is_secure() {
-        let checks = run(&probes(Some(true), Some(true), Some(false)));
-        assert_eq!(derive(&checks), SecurityState::Secure);
+        assert_eq!(derive(&run(&MockProbes::secure())), SecurityState::Secure);
     }
 
     #[test]
     fn active_customizer_is_customizing_not_degraded() {
-        let checks = run(&probes(Some(true), Some(true), Some(true)));
-        assert_eq!(derive(&checks), SecurityState::Customizing);
+        let mut p = MockProbes::secure();
+        p.customizer = Some(true);
+        assert_eq!(derive(&run(&p)), SecurityState::Customizing);
     }
 
     #[test]
     fn any_failed_invariant_is_degraded() {
-        let checks = run(&probes(Some(false), Some(true), Some(false)));
-        assert_eq!(derive(&checks), SecurityState::Degraded);
+        let mut p = MockProbes::secure();
+        p.selinux = Some(false);
+        assert_eq!(derive(&run(&p)), SecurityState::Degraded);
     }
 
     #[test]
     fn failure_outranks_customizing() {
-        let checks = run(&probes(Some(true), Some(false), Some(true)));
-        assert_eq!(derive(&checks), SecurityState::Degraded);
+        let mut p = MockProbes::secure();
+        p.secure_boot = Some(false);
+        p.customizer = Some(true);
+        assert_eq!(derive(&run(&p)), SecurityState::Degraded);
     }
 
     #[test]
     fn unknown_probes_never_report_secure() {
-        let checks = run(&probes(None, None, None));
-        assert_eq!(derive(&checks), SecurityState::Undetermined);
+        let mut p = MockProbes::secure();
+        p.selinux = None;
+        assert_eq!(derive(&run(&p)), SecurityState::Undetermined);
+    }
+
+    #[test]
+    fn running_xwayland_is_degraded() {
+        let mut p = MockProbes::secure();
+        p.xwayland = Some(true);
+        assert_eq!(derive(&run(&p)), SecurityState::Degraded);
+    }
+
+    #[test]
+    fn privileged_group_membership_is_degraded() {
+        let mut p = MockProbes::secure();
+        p.groups = vec!["docker"];
+        assert_eq!(derive(&run(&p)), SecurityState::Degraded);
+    }
+
+    #[test]
+    fn unverified_image_transport_is_degraded() {
+        let mut p = MockProbes::secure();
+        p.image = Some(BootedImage {
+            reference: "ostree-unverified-registry:ghcr.io/marianomiguel/koti:latest".into(),
+            layered_packages: 0,
+        });
+        assert_eq!(derive(&run(&p)), SecurityState::Degraded);
+    }
+
+    #[test]
+    fn foreign_image_is_degraded() {
+        let mut p = MockProbes::secure();
+        p.image = Some(BootedImage {
+            reference: "ostree-image-signed:docker://ghcr.io/someone/else:latest".into(),
+            layered_packages: 0,
+        });
+        assert_eq!(derive(&run(&p)), SecurityState::Degraded);
+    }
+
+    #[test]
+    fn package_layering_is_degraded() {
+        let mut p = MockProbes::secure();
+        if let Some(img) = &mut p.image {
+            img.layered_packages = 2;
+        }
+        assert_eq!(derive(&run(&p)), SecurityState::Degraded);
     }
 }

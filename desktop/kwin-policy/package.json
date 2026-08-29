@@ -5,6 +5,10 @@
   "description": "Koti window policy layer: pure layout core + KWin adapter (PRD §7)",
   "type": "module",
   "scripts": {
-    "test": "node --test"
+    "test": "node --test",
+    "build:kwin": "esbuild src/kwin/main.js --bundle --format=iife --outfile=package/contents/code/main.js"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0"
   }
 }

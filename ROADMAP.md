@@ -42,7 +42,7 @@ Goal: iteration is painless — build, test, stage, seal, roll back from the mac
 | ID | Task | Status | Notes |
 |----|------|--------|-------|
 | M1-01 | `osctl` Rust CLI skeleton (`status`, `audit` stubs) | done | osctl/ builds + tests locally |
-| M1-02 | Security-state machine v0: SECURE / CUSTOMIZING / DEGRADED via `osctl audit` (PRD §51, §97) | doing | state derivation + 3 probes done; full §51 invariant set pending |
+| M1-02 | Security-state machine v0: SECURE / CUSTOMIZING / DEGRADED via `osctl audit` (PRD §51, §97) | doing | 11 checks live (image/boot/MAC/desktop/privileges); 4 remain needing on-device facts |
 | M1-03 | `osctl customize on/off` + drift detection v0 | todo | |
 | M1-04 | Builder VM + `osctl build` | todo | replaces CI-only builds |
 | M1-05 | `osctl test` — boot candidate in disposable VM | todo | |
@@ -64,7 +64,7 @@ Goal: iteration is painless — build, test, stage, seal, roll back from the mac
 | ID | Task | Status | Notes |
 |----|------|--------|-------|
 | M3-00 | Pure-logic core for all four modes, locally unit-tested (tiling, scrolling, stage, mode-state) | done | desktop/kwin-policy, 35 tests |
-| M3-01 | ModeController architecture + per-workspace-per-output state | doing | cell model done in core; KWin adapter pending |
+| M3-01 | ModeController architecture + per-workspace-per-output state | doing | cell model done; KWin/Script package + esbuild bundling ready, adapter v0 observing-only |
 | M3-02 | FloatingController | todo | |
 | M3-03 | TilingController | doing | COSMIC-style split-tree autotiler core landed (PRD §12 v1.2, 18 tests); KWin wiring pending |
 | M3-04 | ScrollingController | todo | |

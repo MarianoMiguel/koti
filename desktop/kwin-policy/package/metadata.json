@@ -1,0 +1,18 @@
+{
+    "KPlugin": {
+        "Id": "org.koti.windowpolicy",
+        "Name": "Koti Window Policy",
+        "Description": "Four-mode window management: Floating, Tiling, Scrolling, Stage (PRD §7)",
+        "Version": "0.1.0",
+        "License": "MIT",
+        "Authors": [
+            {
+                "Name": "Koti Project"
+            }
+        ],
+        "EnabledByDefault": true
+    },
+    "KPackageStructure": "KWin/Script",
+    "X-Plasma-API": "javascript",
+    "X-Plasma-MainScript": "code/main.js"
+}

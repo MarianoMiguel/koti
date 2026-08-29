@@ -142,6 +142,7 @@ name = "osctl"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "serde_json",
 ]
 
 [[package]]
