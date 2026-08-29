@@ -34,7 +34,7 @@ Goal: a signed Koti OCI image, built and published by CI, that the P14s can reba
 | M0-07 | Install docs: secureblue → rebase → signed rebase | done | docs/install.md |
 | M0-08 | P14s: install + hardware acceptance checklist (PRD §75) | blocked | needs Mariano at the machine |
 | M0-09 | On-device: update + rollback verified | blocked | after M0-08 |
-| M0-10 | Decide repo/package visibility + CI budget | todo | Mariano's call — see task file |
+| M0-10 | Decide repo/package visibility + CI budget | done | Mariano made the repo public 2026-08-29 → Actions minutes unmetered; package flipped public alongside (device pulls need no auth) |
 
 ## Phase 1 — Customizer Infrastructure (M1, PRD §101)
 
