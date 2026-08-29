@@ -480,6 +480,56 @@ function onWindowActivated(window) {
     }
 }
 
+// --- placement actions (Raycast-style) --------------------------------------
+
+/** "almost-maximize" → "Almost Maximize", for the shortcut's display name. */
+function actionLabel(action) {
+    var words = action.split("-");
+    for (var i = 0; i < words.length; i++) {
+        words[i] = words[i].charAt(0).toUpperCase() + words[i].slice(1);
+    }
+    return words.join(" ");
+}
+
+function runAction(action) {
+    var window = workspace.activeWindow;
+    if (!window || !isManaged(window)) return;
+    var cell = cellOf(window);
+    var rect = controller.applyAction(
+        ctl, cell.workspaceId, cell.outputId, windowId(window), action,
+        { screen: screenOf(cell), frame: rectOf(window) },
+    );
+    // null means the active mode places windows itself, so the action has
+    // nothing to act on — leave the window alone rather than fight the layout.
+    if (!rect) return;
+    applying = true;
+    try {
+        setGeometry(window, rect);
+    } finally {
+        applying = false;
+    }
+}
+
+/** Minimize everything except the active window (Raycast's Hide Others). */
+function hideOthers() {
+    var active = workspace.activeWindow;
+    if (!active || !isManaged(active)) return;
+    var activeId = windowId(active);
+    var list = workspace.windowList();
+    for (var i = 0; i < list.length; i++) {
+        var window = list[i];
+        if (!isManaged(window) || windowId(window) === activeId) continue;
+        if (!window.minimized && window.minimizable) window.minimized = true;
+    }
+}
+
+function showAll() {
+    var list = workspace.windowList();
+    for (var i = 0; i < list.length; i++) {
+        if (isManaged(list[i]) && list[i].minimized) list[i].minimized = false;
+    }
+}
+
 // --- init -------------------------------------------------------------------
 
 function bindShortcuts() {
@@ -497,6 +547,28 @@ function bindShortcuts() {
     }
     registerShortcut("Koti Layout Next", "Koti: next layout mode", "", function () { cycleMode(1); });
     registerShortcut("Koti Layout Previous", "Koti: previous layout mode", "", function () { cycleMode(-1); });
+
+    // Every placement action gets a shortcut. Unbound by default apart from
+    // the three Mariano already had on NixOS — the rest are discoverable and
+    // bindable in System Settings → Shortcuts → KWin, which is what makes the
+    // whole set customizable from the KDE GUI without any config file.
+    var defaultKeys = {
+        "center": "Alt+[",
+        "almost-maximize": "Alt+]",
+    };
+    var actionList = controller.ACTIONS;
+    for (var a = 0; a < actionList.length; a++) {
+        (function (action) {
+            registerShortcut(
+                "Koti " + actionLabel(action),
+                "Koti: " + actionLabel(action).toLowerCase() + " the active window",
+                defaultKeys[action] || "",
+                function () { runAction(action); },
+            );
+        })(actionList[a]);
+    }
+    registerShortcut("Koti Hide Others", "Koti: hide every other window", "Alt+'", hideOthers);
+    registerShortcut("Koti Show All", "Koti: restore every hidden window", "", showAll);
 
     var directions = ["left", "right", "up", "down"];
     var keys = ["Left", "Right", "Up", "Down"];

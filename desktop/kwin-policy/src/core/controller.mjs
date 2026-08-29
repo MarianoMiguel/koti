@@ -22,8 +22,10 @@ import * as floating from "./floating.mjs";
 import * as tree from "./tiling-tree.mjs";
 import * as scrolling from "./scrolling.mjs";
 import * as stage from "./stage.mjs";
+import * as actions from "./actions.mjs";
 
 export { MODES, DEFAULT_MODE };
+export { ACTIONS, FRACTIONAL_LAYOUTS, SPECIAL_ACTIONS } from "./actions.mjs";
 
 const DEFAULTS = {
   gap: 8,
@@ -630,18 +632,65 @@ function reorderStripTo(strip, id, stripX) {
  */
 export function focusNeighbour(ctl, workspaceId, outputId, id, direction, { screen }) {
   const cell = ensureCell(ctl, workspaceId, outputId);
-  if (mode(ctl, workspaceId, outputId) !== "tiling") return null;
-  return tree.focusDirection(cell.tree, id, direction, inset(screen, ctl.options.gap), ctl.options.gap);
+  const active = mode(ctl, workspaceId, outputId);
+  if (active === "tiling") {
+    return tree.focusDirection(
+      cell.tree, id, direction, inset(screen, ctl.options.gap), ctl.options.gap,
+    );
+  }
+  if (active === "scrolling") {
+    // The strip only runs one way, so up and down have no neighbour on it.
+    if (direction === "left") return scrolling.neighbor(cell.strip, id, -1);
+    if (direction === "right") return scrolling.neighbor(cell.strip, id, 1);
+    return null;
+  }
+  return null;
 }
 
-/** Swap a tile with its neighbour in `direction`; a no-op at the edge. */
+/** Move a window one place in `direction`; a no-op at the edge. */
 export function moveNeighbour(ctl, workspaceId, outputId, id, direction, { screen }) {
   const cell = ensureCell(ctl, workspaceId, outputId);
-  if (mode(ctl, workspaceId, outputId) !== "tiling") return cell;
-  cell.tree = tree.moveDirection(
-    cell.tree, id, direction, inset(screen, ctl.options.gap), ctl.options.gap,
-  );
+  const active = mode(ctl, workspaceId, outputId);
+  if (active === "tiling") {
+    cell.tree = tree.moveDirection(
+      cell.tree, id, direction, inset(screen, ctl.options.gap), ctl.options.gap,
+    );
+  } else if (active === "scrolling") {
+    if (direction === "left") cell.strip = scrolling.moveWindow(cell.strip, id, -1);
+    if (direction === "right") cell.strip = scrolling.moveWindow(cell.strip, id, 1);
+  }
   return cell;
+}
+
+// --- window actions (Raycast-style placement) -------------------------------
+
+/** Modes where the user places windows, so a placement action has meaning. */
+const PLACEMENT_MODES = ["floating", "stage"];
+
+/**
+ * Run a named placement action ("almost-maximize", "left-half", "center", …)
+ * on a window, and remember the result so the mode keeps it.
+ *
+ * Only Floating and Stage take these (Mariano, 2026-08-29): Tiling and
+ * Scrolling decide placement themselves, and "left half" has nothing to mean
+ * inside a split tree. Returns the rect to apply, or null if the action does
+ * not apply here — the caller can then leave the window alone rather than
+ * guess.
+ */
+export function applyAction(ctl, workspaceId, outputId, id, action, { screen, frame }) {
+  const cell = ensureCell(ctl, workspaceId, outputId);
+  if (!cell.order.includes(id)) return null;
+  const active = mode(ctl, workspaceId, outputId);
+  if (!PLACEMENT_MODES.includes(active)) return null;
+
+  const rect = actions.actionRect(action, {
+    frame,
+    workArea: screen,
+    gap: ctl.options.gap,
+  });
+  if (active === "floating") rememberWindow(ctl.modes, id, { floatingGeometry: rect });
+  else rememberWindow(ctl.modes, id, { stageGeometry: rect });
+  return rect;
 }
 
 // --- stage operations surfaced to the UI (PRD §14) --------------------------

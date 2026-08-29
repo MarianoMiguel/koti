@@ -422,3 +422,102 @@ test("exclusion survives a serialize round trip", () => {
     ctl.computeLayout(restored, WS, OUT, { screen }).windows.map((w) => w.id), ["a"],
   );
 });
+
+// --- window actions ---------------------------------------------------------
+
+const frameOf = (c, id) => rectOf(layout(c), id);
+
+test("almost-maximize centres a window at 90% of the work area", () => {
+  const c = withWindows("a");
+  const rect = ctl.applyAction(c, WS, OUT, "a", "almost-maximize", {
+    screen, frame: frameOf(c, "a"),
+  });
+  assert.deepEqual(rect, { x: 50, y: 30, width: 900, height: 540 });
+  assert.deepEqual(frameOf(c, "a"), rect, "and the mode keeps it");
+});
+
+test("center keeps the window's size and centres it", () => {
+  const c = ctl.createController({ gap: 8 });
+  ctl.addWindow(c, WS, OUT, "a", { geometry: { x: 0, y: 0, width: 400, height: 300 } });
+  const rect = ctl.applyAction(c, WS, OUT, "a", "center", {
+    screen, frame: { x: 0, y: 0, width: 400, height: 300 },
+  });
+  assert.deepEqual(rect, { x: 300, y: 150, width: 400, height: 300 });
+});
+
+test("left-half takes half the work area, inset by the gap", () => {
+  const c = ctl.createController({ gap: 8 });
+  ctl.addWindow(c, WS, OUT, "a");
+  const rect = ctl.applyAction(c, WS, OUT, "a", "left-half", {
+    screen, frame: { x: 0, y: 0, width: 100, height: 100 },
+  });
+  assert.deepEqual(rect, { x: 8, y: 8, width: 484, height: 584 });
+});
+
+test("maximize-width keeps the window's height and row", () => {
+  const c = ctl.createController({ gap: 8 });
+  ctl.addWindow(c, WS, OUT, "a");
+  const frame = { x: 100, y: 200, width: 300, height: 150 };
+  const rect = ctl.applyAction(c, WS, OUT, "a", "maximize-width", { screen, frame });
+  assert.deepEqual(rect, { x: 8, y: 200, width: 984, height: 150 });
+});
+
+test("a placement action sticks on a stage too", () => {
+  const c = withApps(["a", "editor"]);
+  const rect = ctl.applyAction(c, WS, OUT, "a", "left-half", {
+    screen, frame: frameOf(c, "a"),
+  });
+  assert.deepEqual(frameOf(c, "a"), rect);
+});
+
+test("placement actions do not apply in tiling or scrolling", () => {
+  for (const m of ["tiling", "scrolling"]) {
+    const c = withWindows("a", "b");
+    ctl.switchMode(c, WS, OUT, m, { screen });
+    const before = layout(c);
+    const rect = ctl.applyAction(c, WS, OUT, "a", "left-half", {
+      screen, frame: rectOf(before, "a"),
+    });
+    assert.equal(rect, null, `${m} should refuse placement actions`);
+    assert.deepEqual(layout(c), before, `${m} layout untouched`);
+  }
+});
+
+test("every advertised action produces a rect inside the work area", () => {
+  const c = withWindows("a");
+  const frame = { x: 100, y: 100, width: 400, height: 300 };
+  for (const action of ctl.ACTIONS) {
+    const r = ctl.applyAction(c, WS, OUT, "a", action, { screen, frame });
+    assert.ok(r.width > 0 && r.height > 0, `${action} produced an empty rect`);
+    assert.ok(
+      r.x >= screen.x && r.y >= screen.y &&
+      r.x + r.width <= screen.x + screen.width &&
+      r.y + r.height <= screen.y + screen.height,
+      `${action} escaped the work area: ${JSON.stringify(r)}`,
+    );
+  }
+});
+
+test("an unknown action is refused rather than guessed at", () => {
+  const c = withWindows("a");
+  assert.throws(
+    () => ctl.applyAction(c, WS, OUT, "a", "diagonal-ish", { screen, frame: screen }),
+    RangeError,
+  );
+});
+
+test("directional focus walks the scrolling strip (niri-style)", () => {
+  const c = withWindows("a", "b", "c");
+  ctl.switchMode(c, WS, OUT, "scrolling", { screen });
+  assert.equal(ctl.focusNeighbour(c, WS, OUT, "b", "right", { screen }), "c");
+  assert.equal(ctl.focusNeighbour(c, WS, OUT, "b", "left", { screen }), "a");
+  assert.equal(ctl.focusNeighbour(c, WS, OUT, "c", "right", { screen }), null);
+  assert.equal(ctl.focusNeighbour(c, WS, OUT, "b", "up", { screen }), null, "the strip has no up");
+});
+
+test("moving along the scrolling strip reorders it", () => {
+  const c = withWindows("a", "b", "c");
+  ctl.switchMode(c, WS, OUT, "scrolling", { screen });
+  ctl.moveNeighbour(c, WS, OUT, "a", "right", { screen });
+  assert.deepEqual(layout(c).windows.map((w) => w.id), ["b", "a", "c"]);
+});
