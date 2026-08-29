@@ -9,7 +9,16 @@ Follow [secureblue's install guide](https://secureblue.dev/install) and pick **K
 Two facts about the freshly installed host (learned on real hardware, 2026-08-29):
 
 - there is no `sudo` — elevation is systemd's **`run0`**;
-- piping into `run0` is unreliable (it runs commands in a fresh PTY) — stage files in `/tmp`, then `run0 cp`.
+- piping into `run0` is unreliable (it runs commands in a fresh PTY) — stage files in `/tmp`, then `run0 cp`;
+- **never put `run0` in front of `rpm-ostree`.** It authenticates fine and then dies on SELinux, because `/usr/bin/rpm-ostree` is labelled `install_exec_t` and `run0` launches it from `unconfined_t`:
+
+  ```text
+  avc: denied { entrypoint } for comm="(rpm-ostree)" path="/usr/bin/rpm-ostree"
+  scontext=unconfined_u:unconfined_r:unconfined_t tcontext=system_u:object_r:install_exec_t
+  Failed at step EXEC spawning /usr/bin/rpm-ostree: Permission denied
+  ```
+
+  `rpm-ostree` needs no elevation from you: the CLI talks to `rpm-ostreed` over D-Bus and the daemon authorises you through polkit (`org.projectatomic.rpmostree1.policy`), so run it as yourself and answer the prompt.
 
 ## 2. Register Koti's signing key (one time)
 
