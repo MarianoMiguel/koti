@@ -17,7 +17,8 @@ Everything that can be a pure function is: geometry in, geometry out. This lets 
 - `core/floating.mjs` — geometry recall, cascade placement for unplaced windows, screen clamping (PRD §11)
 - `core/tiling.mjs` — tile layout computation (PRD §12: automatic, columns, rows, main-stack)
 - `core/tiling-tree.mjs` — COSMIC-class split tree behind the Automatic policy
-- `core/scrolling.mjs` — PaperWM-style strip model (PRD §13: stable widths, viewport follows focus)
+- `core/scrolling.mjs` — niri-style scrollable tiling (PRD §13): a strip of **columns**, each of which can hold a vertical stack. The stack is what makes consume/expel mean anything; a flat row of windows cannot express them
+- `core/actions.mjs` — 36 Raycast-style placement actions, geometry matched to the vicinae/GNOME setup
 - `core/stage.mjs` — Stage grouping model (PRD §14)
 - `core/mode-state.mjs` — per workspace-per-output mode + per-window memory (PRD §10, §17, §18)
 
@@ -46,9 +47,24 @@ guarded:
 ## Test
 
 ```bash
-npm test          # 92 tests, node --test, no dependencies
+npm test             # node --test, no dependencies
 npm run build:kwin   # bundle for KWin (esbuild, es2016)
+
+KOTI_FUZZ_SEEDS=600 npm test   # deep invariant sweep before shipping a change
 ```
+
+### The fuzzer is the safety net
+
+`test/invariants.test.mjs` drives every operation in every mode against every
+cell and re-checks every invariant after each step: no window lost or
+duplicated, tiles never overlap or escape the screen, columns never gain a gap,
+stage shows exactly its active stage, layout is idempotent, and everything
+survives a serialize round trip. Failures print the seed and step so they
+replay exactly.
+
+Run the deep sweep after any change to the layout core. It has already caught
+bugs no unit test would have: a crash reaching into the strip before reconcile
+had populated it, and wrong spacing inside a column.
 
 ### On the device
 

@@ -15,7 +15,7 @@ Phases map to PRD milestones (M0–M12). Phases beyond the active one are delibe
 ## Now / Next
 
 - **The dev machine is now the device.** Since 2026-08-29 this repo is worked on from the P14s running Koti itself, so "needs the device" is no longer a blocker: KWin scripts hot-load over `org.kde.kwin.Scripting`, panels apply over `org.kde.PlasmaShell.evaluateScript`, and everything is verified against a live Plasma 6 / Wayland session.
-- **Now:** land the desktop work in the image (one batched build); Ghostty + default terminal (M6-06)
+- **Now:** on-device shakedown of the mode controls (docs/shortcuts.md lists all 108); thumbnails and drag-between-stages for the rail (M5-02)
 - **Waiting on Mariano:** full Flathub remote vs. Boxes for unverified apps, and which "ChatGPT desktop" (M6-06); hardware acceptance checklist (M0-08)
 
 ---
@@ -72,12 +72,12 @@ Goal: iteration is painless — build, test, stage, seal, roll back from the mac
 | M3-02 | FloatingController | done | `core/floating.mjs`: geometry recall, cascade placement, screen clamping |
 | M3-03 | TilingController | done | split-tree autotiler now wired through the adapter; directional focus/move on Meta+Alt+arrows |
 | M3-04 | ScrollingController | done | stable widths, viewport follows focus, off-strip windows hidden |
-| M3-05 | StageController | doing | per-app stages, one on the canvas, rest hidden — reworked 2026-08-29 after Mariano found it behaved like floating; rail UI is M5-02 |
+| M3-05 | StageController | done | per-app stages, free placement, cycling, split-out and merge; rail is M5-02 |
 | M3-06 | Mode switching + state persistence (PRD §17) | done | round trip verified byte-identical on-device; cross-session persistence lives in the plasmoid's config |
-| M3-07 | Per-monitor workspaces (hyprland/niri), all four modes | doing | core + adapter + shortcuts + indicator widget done; move-to-monitor and workspace naming remain |
+| M3-07 | Per-monitor workspaces (hyprland/niri), all four modes | done | switching, moving, move-to-monitor, indicator widget; naming and dynamic count deliberately deferred |
 | M3-08 | Direct manipulation: drag/resize means something in every mode | done | drop-by-quadrant, split resize, strip reorder, free placement in floating/stage |
 | M3-09 | Raycast-style placement actions (36) | done | ported from the vicinae/GNOME setup, geometry matched exactly |
-| M3-10 | Remaining hyprland/niri parity per mode | todo | tiling: toggle split orientation, toggle floating, fullscreen, cycle layout policy. scrolling: preset column widths, consume/expel, centre column. see M3-10 |
+| M3-10 | Remaining hyprland/niri parity per mode | done | tiling controls, niri **columns** with consume/expel and preset widths, stage cycling/merge, fullscreen; 108 shortcuts, all rebindable in the KDE GUI |
 
 ## Phase 4 — KWin Effects (M4, PRD §104)
 
@@ -93,7 +93,7 @@ Goal: iteration is painless — build, test, stage, seal, roll back from the mac
 | ID | Task | Status | Notes |
 |----|------|--------|-------|
 | M5-01 | Mode selector | done | drives KWin through KGlobalAccel; Meta+Shift+Space opens it (PRD §16) |
-| M5-02 | Stage rail | todo | |
+| M5-02 | Stage rail | doing | cards, active stage, click-to-switch; groups by app so manual regrouping diverges — see task file |
 | M5-03 | Security-state indicator | todo | |
 | M5-04 | Customizer UI | todo | |
 | M5-05 | Project/workspace UI + launcher integration | todo | |
