@@ -49,7 +49,7 @@ Goal: iteration is painless — build, test, stage, seal, roll back from the mac
 | M1-06 | `osctl stage` / `osctl rollback` | todo | |
 | M1-07 | `osctl seal` — customization → trusted signed deployment | todo | |
 | M1-08 | `osctl desktop reload` — KWin script dev loop | todo | |
-| M1-09 | Image integration: ship osctl/agentboxd/box + desktop packages via a builder stage | doing | stages implemented in both recipes; verification build dispatched; default-enable deferred (secureblue conflict check) |
+| M1-09 | Image integration: ship osctl/agentboxd/box + desktop packages via a builder stage | done | verified green (run 33224687190, 2026-08-29); default-enable of theme/script deferred pending secureblue conflict check |
 
 ## Phase 2 — Four-Mode Behavioral Prototype (M2, PRD §102)
 
