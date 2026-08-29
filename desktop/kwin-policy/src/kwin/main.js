@@ -33,9 +33,14 @@ function log(message) {
 // this we would answer our own notification forever.
 var applying = false;
 
-// Windows this script minimized to get them off the canvas, so we know which
-// ones are ours to bring back.
-var hiddenByUs = {};
+// Two different facts, kept apart because conflating them loses state:
+//   savedFlags[id]     — the taskbar/switcher flags a window had before we hid
+//                        it, so they can be given back exactly.
+//   minimizedByUs[id]  — we are the ones who minimized it, so we are the ones
+//                        allowed to un-minimize it. A window the user minimized
+//                        is theirs and stays minimized.
+var savedFlags = {};
+var minimizedByUs = {};
 
 // --- identity ---------------------------------------------------------------
 
@@ -53,31 +58,49 @@ function isManaged(window) {
     if (!window.normalWindow) return false;
     if (window.desktopWindow || window.dock || window.splash || window.utility) return false;
     if (window.dialog || window.popupWindow || window.transient) return false;
-    if (window.skipTaskbar || window.specialWindow) return false;
+    if (window.specialWindow) return false;
+    // skipTaskbar normally means "not a window the user thinks about" — but we
+    // set it ourselves to keep hidden workspaces out of the dock. Excluding
+    // those would drop them out of management the moment they were hidden, and
+    // they would never come back.
+    if (window.skipTaskbar && !savedFlags[windowId(window)]) return false;
     if (window.fullScreen) return false; // a fullscreen window owns its output
     return true;
 }
 
-function cellOf(window) {
-    var desktop = window.desktops && window.desktops.length > 0
-        ? window.desktops[0]
-        : workspace.currentDesktop;
+function outputIdOf(window) {
     var output = window.output || workspace.activeScreen;
-    return { workspaceId: String(desktop.id), outputId: String(output.name) };
+    return String(output.name);
+}
+
+/**
+ * Koti's workspaces are its own, not KWin's.
+ *
+ * KWin's virtual desktops are global — one current desktop for the whole
+ * session — so they cannot express "workspace 3 on the laptop while the
+ * external monitor stays on 1", which is how hyprland and niri work and what
+ * Mariano asked for. The controller therefore owns a workspace per output, and
+ * KWin's desktops are kept in sync only as a *display* of the active output's
+ * workspace, so panel widgets have something native to read.
+ */
+function cellOf(window) {
+    var outputId = outputIdOf(window);
+    var known = controller.workspaceOf(ctl, outputId, windowId(window));
+    return {
+        workspaceId: known === null ? controller.currentWorkspace(ctl, outputId) : known,
+        outputId: outputId,
+    };
 }
 
 function currentCell() {
-    return {
-        workspaceId: String(workspace.currentDesktop.id),
-        outputId: String(workspace.activeScreen.name),
-    };
+    var outputId = String(workspace.activeScreen.name);
+    return { workspaceId: controller.currentWorkspace(ctl, outputId), outputId: outputId };
 }
 
 /** The placement area: the screen minus panels and struts. */
 function screenOf(cell) {
     var output = outputByName(cell.outputId);
-    var desktop = desktopById(cell.workspaceId);
-    var area = workspace.clientArea(KWin.PlacementArea, output, desktop);
+    var area = workspace.clientArea(KWin.PlacementArea, output, workspace.currentDesktop);
     return { x: area.x, y: area.y, width: area.width, height: area.height };
 }
 
@@ -87,14 +110,6 @@ function outputByName(name) {
         if (String(screens[i].name) === name) return screens[i];
     }
     return workspace.activeScreen;
-}
-
-function desktopById(id) {
-    var desktops = workspace.desktops;
-    for (var i = 0; i < desktops.length; i++) {
-        if (String(desktops[i].id) === id) return desktops[i];
-    }
-    return workspace.currentDesktop;
 }
 
 function windowByIdOnCell(id) {
@@ -132,24 +147,22 @@ function applyLayout(cell, options) {
             // Scrolling and Stage keep windows that are off the canvas alive but
             // out of sight; minimize is the only hide KWin scripting exposes.
             if (!placement.visible) {
-                if (!window.minimized && window.minimizable) {
-                    window.minimized = true;
-                    hiddenByUs[placement.id] = true;
-                }
+                hideWindow(window, placement.id);
                 continue;
             }
-            // Only un-minimize what *we* minimized. A window the user
-            // minimized themselves stays minimized — PRD §11 promises native
-            // minimize, and restoring it behind their back is not that.
+            // Only un-hide what *we* hid. A window the user minimized
+            // themselves stays minimized — PRD §11 promises native minimize,
+            // and restoring it behind their back is not that.
             if (window.minimized) {
-                if (!hiddenByUs[placement.id]) continue;
-                window.minimized = false;
+                if (!minimizedByUs[placement.id]) continue;
+                showWindow(window, placement.id);
                 // KWin restores a window's pre-minimize geometry as part of
                 // un-minimizing, and does it after this returns — so setting
                 // geometry now would be overwritten. Ask again once it lands.
                 reassertAfterRestore(window, placement.rect);
+            } else {
+                showWindow(window, placement.id);
             }
-            delete hiddenByUs[placement.id];
             if (!placement.rect) continue;
             if (!window.moveable && !window.resizeable) continue;
             setGeometry(window, placement.rect);
@@ -215,8 +228,85 @@ function reassertAfterRestore(window, rect) {
     window.minimizedChanged.connect(handler);
 }
 
+/**
+ * Take a window off screen. Minimize is the only hide KWin scripting offers,
+ * so it doubles as "on another workspace" — and the taskbar and switcher are
+ * told to ignore it, because a window on workspace 4 has no business showing
+ * up in the dock while you are looking at workspace 1.
+ */
+function hideWindow(window, id) {
+    if (!savedFlags[id]) {
+        savedFlags[id] = { skipTaskbar: window.skipTaskbar, skipSwitcher: window.skipSwitcher };
+        window.skipTaskbar = true;
+        window.skipSwitcher = true;
+    }
+    if (!window.minimized && window.minimizable) {
+        window.minimized = true;
+        minimizedByUs[id] = true;
+    }
+}
+
+/** Give a window its taskbar and switcher entries back, minimized or not. */
+function restoreFlags(window, id) {
+    var saved = savedFlags[id];
+    if (!saved) return;
+    window.skipTaskbar = saved.skipTaskbar;
+    window.skipSwitcher = saved.skipSwitcher;
+    delete savedFlags[id];
+}
+
+/** @returns true if this call un-minimized the window. */
+function showWindow(window, id) {
+    restoreFlags(window, id);
+    if (!minimizedByUs[id]) return false;
+    delete minimizedByUs[id];
+    if (!window.minimized) return false;
+    window.minimized = false;
+    return true;
+}
+
+/**
+ * Lay out one output: hide everything that belongs to another workspace, then
+ * apply the current workspace's layout. Workspaces sit *above* modes — every
+ * mode gets the same workspace behaviour rather than each reinventing it.
+ */
+function applyOutput(outputId, options) {
+    var current = controller.currentWorkspace(ctl, outputId);
+    var list = workspace.windowList();
+    applying = true;
+    try {
+        for (var i = 0; i < list.length; i++) {
+            var window = list[i];
+            if (!isManaged(window) || outputIdOf(window) !== outputId) continue;
+            var id = windowId(window);
+            var ws = controller.workspaceOf(ctl, outputId, id);
+            if (ws !== null && ws !== current) {
+                hideWindow(window, id);
+            } else {
+                // Back on this workspace: give the taskbar entry back even if
+                // the window stays minimized because the *user* minimized it.
+                // Without this a workspace round trip silently strips a
+                // minimized window out of the dock for good.
+                restoreFlags(window, id);
+            }
+        }
+    } catch (e) {
+        log("could not hide off-workspace windows: " + e);
+    } finally {
+        applying = false;
+    }
+    applyLayout({ workspaceId: current, outputId: outputId }, options);
+}
+
+function applyAllOutputs(options) {
+    var screens = workspace.screens;
+    for (var i = 0; i < screens.length; i++) {
+        applyOutput(String(screens[i].name), options);
+    }
+}
+
 function relayoutCurrent() {
-    applyLayout(currentCell(), {});
+    applyOutput(String(workspace.activeScreen.name), {});
 }
 
 // --- window bookkeeping -----------------------------------------------------
@@ -245,8 +335,21 @@ function attach(window, options) {
     // tile or a slot on the strip while it is off screen.
     controller.setExcluded(
         ctl, cell.workspaceId, cell.outputId, id,
-        window.minimized && !hiddenByUs[id],
+        window.minimized && !minimizedByUs[id],
     );
+
+    // KWin's desktop switching must not hide anything — visibility is decided
+    // by the controller, and KWin's desktops only mirror the indicator.
+    if (!window.onAllDesktops) {
+        applying = true;
+        try {
+            window.onAllDesktops = true;
+        } catch (e) {
+            log("could not pin " + id + " to all desktops: " + e);
+        } finally {
+            applying = false;
+        }
+    }
 
     if (connected[id]) return;
     connected[id] = true;
@@ -287,10 +390,10 @@ function attach(window, options) {
     });
 
     window.minimizedChanged.connect(function () {
-        // Ours to hide, ours to ignore — hiddenByUs marks the windows this
-        // script minimized to get them off the canvas, and those stay in the
-        // layout because they are coming back.
-        if (applying || hiddenByUs[id]) return;
+        // Ours to hide, ours to ignore — minimizedByUs marks the windows this
+        // script minimized to get them off the canvas or off the workspace,
+        // and those stay in the layout because they are coming back.
+        if (applying || minimizedByUs[id]) return;
         var cell = cellOf(window);
         controller.setExcluded(ctl, cell.workspaceId, cell.outputId, id, window.minimized);
         applyLayout(cell, {});
@@ -311,7 +414,8 @@ function detach(window) {
     var cell = cellOf(window);
     var id = windowId(window);
     delete connected[id];
-    delete hiddenByUs[id];
+    delete savedFlags[id];
+    delete minimizedByUs[id];
     controller.removeWindow(ctl, cell.workspaceId, cell.outputId, id);
     applyLayout(cell, {});
 }
@@ -348,7 +452,7 @@ function rebuild() {
             screen: screenOf(cell),
         });
     }
-    relayoutCurrent();
+    applyAllOutputs({});
 }
 
 // --- modes ------------------------------------------------------------------
@@ -480,6 +584,87 @@ function onWindowActivated(window) {
     }
 }
 
+// --- workspaces -------------------------------------------------------------
+
+// Set while we are the ones changing KWin's desktop, so the mirror does not
+// bounce back and re-apply what it just published.
+var mirroring = false;
+
+/**
+ * Koti's workspaces live in the controller, one set per output. KWin's virtual
+ * desktops cannot do that — the current desktop is global — but panel widgets
+ * can read them, so the *active output's* workspace is mirrored onto KWin's
+ * current desktop purely so an indicator has something native to show.
+ *
+ * Managed windows are put on all desktops, so KWin's own desktop switching
+ * never hides anything: what is on screen is decided here, not by KWin.
+ */
+function ensureDesktops(count) {
+    try {
+        while (workspace.desktops.length < count) {
+            workspace.createDesktop(workspace.desktops.length, "Workspace " + (workspace.desktops.length + 1));
+        }
+    } catch (e) {
+        log("could not create virtual desktops for the workspace indicator: " + e);
+    }
+}
+
+function mirrorToKWin(index) {
+    var desktops = workspace.desktops;
+    if (index < 1 || index > desktops.length) return;
+    if (workspace.currentDesktop === desktops[index - 1]) return;
+    mirroring = true;
+    try {
+        workspace.currentDesktop = desktops[index - 1];
+    } catch (e) {
+        log("could not mirror workspace " + index + ": " + e);
+    } finally {
+        mirroring = false;
+    }
+}
+
+/** Give focus to something on this output, so a switch does not land nowhere. */
+function focusOnOutput(outputId) {
+    var cell = { workspaceId: controller.currentWorkspace(ctl, outputId), outputId: outputId };
+    var focused = controller.focusedWindow(ctl, cell.workspaceId, cell.outputId);
+    var candidates = controller.windows(ctl, cell.workspaceId, cell.outputId);
+    var wanted = focused && candidates.indexOf(focused) !== -1 ? focused : candidates[candidates.length - 1];
+    if (!wanted) return;
+    var window = windowByIdOnCell(wanted);
+    if (window && !window.minimized) workspace.activeWindow = window;
+}
+
+function goToWorkspace(index) {
+    var outputId = String(workspace.activeScreen.name);
+    controller.setCurrentWorkspace(ctl, outputId, index);
+    applyOutput(outputId, { force: true });
+    mirrorToKWin(controller.currentWorkspace(ctl, outputId));
+    focusOnOutput(outputId);
+    log("workspace " + controller.currentWorkspace(ctl, outputId) + " on " + outputId);
+}
+
+function cycleWorkspace(delta) {
+    var outputId = String(workspace.activeScreen.name);
+    var count = 9;
+    var current = controller.currentWorkspace(ctl, outputId);
+    goToWorkspace(((current - 1 + delta + count) % count) + 1);
+}
+
+/** hyprland's movetoworkspace / movetoworkspacesilent. */
+function moveActiveToWorkspace(index, follow) {
+    var window = workspace.activeWindow;
+    if (!window || !isManaged(window)) return;
+    var outputId = outputIdOf(window);
+    var moved = controller.moveWindowToWorkspace(
+        ctl, outputId, windowId(window), index,
+        { screen: screenOf({ workspaceId: index, outputId: outputId }) },
+    );
+    if (moved === null) return;
+    applyOutput(outputId, { force: true });
+    if (follow) goToWorkspace(moved);
+    else focusOnOutput(outputId);
+}
+
 // --- placement actions (Raycast-style) --------------------------------------
 
 /** "almost-maximize" → "Almost Maximize", for the shortcut's display name. */
@@ -570,6 +755,35 @@ function bindShortcuts() {
     registerShortcut("Koti Hide Others", "Koti: hide every other window", "Alt+'", hideOthers);
     registerShortcut("Koti Show All", "Koti: restore every hidden window", "", showAll);
 
+    // Workspaces, bound the way hyprland and niri bind them. Meta+N goes to a
+    // workspace on the *focused monitor* only; the other monitor keeps its own.
+    for (var n = 1; n <= 9; n++) {
+        (function (index) {
+            registerShortcut(
+                "Koti Workspace " + index,
+                "Koti: go to workspace " + index + " on this monitor",
+                "Meta+" + index,
+                function () { goToWorkspace(index); },
+            );
+            registerShortcut(
+                "Koti Move To Workspace " + index,
+                "Koti: move the window to workspace " + index,
+                "Meta+Shift+" + index,
+                function () { moveActiveToWorkspace(index, false); },
+            );
+            registerShortcut(
+                "Koti Move To Workspace " + index + " And Follow",
+                "Koti: move the window to workspace " + index + " and follow it",
+                "",
+                function () { moveActiveToWorkspace(index, true); },
+            );
+        })(n);
+    }
+    registerShortcut("Koti Workspace Next", "Koti: next workspace on this monitor",
+        "Meta+Ctrl+Right", function () { cycleWorkspace(1); });
+    registerShortcut("Koti Workspace Previous", "Koti: previous workspace on this monitor",
+        "Meta+Ctrl+Left", function () { cycleWorkspace(-1); });
+
     var directions = ["left", "right", "up", "down"];
     var keys = ["Left", "Right", "Up", "Down"];
     for (var d = 0; d < directions.length; d++) {
@@ -591,14 +805,28 @@ function bindShortcuts() {
 }
 
 export function init() {
+    ensureDesktops(9);
+
     workspace.windowAdded.connect(attach);
     workspace.windowRemoved.connect(detach);
     workspace.windowActivated.connect(onWindowActivated);
-    workspace.currentDesktopChanged.connect(relayoutCurrent);
     workspace.screensChanged.connect(rebuild);
+
+    // A desktop change we did not cause came from the panel indicator, so it
+    // means "switch the focused monitor to that workspace".
+    workspace.currentDesktopChanged.connect(function () {
+        if (mirroring || applying) return;
+        var outputId = String(workspace.activeScreen.name);
+        var index = workspace.currentDesktop.x11DesktopNumber;
+        if (!index) return;
+        controller.setCurrentWorkspace(ctl, outputId, index);
+        applyOutput(outputId, { force: true });
+        focusOnOutput(outputId);
+    });
 
     bindShortcuts();
     rebuild();
+    mirrorToKWin(controller.currentWorkspace(ctl, String(workspace.activeScreen.name)));
 }
 
 if (typeof workspace !== "undefined") {

@@ -1,0 +1,17 @@
+{
+    "KPlugin": {
+        "Id": "org.koti.workspaceindicator",
+        "Name": "Workspaces",
+        "Description": "Which workspace this monitor is on (Koti)",
+        "Icon": "virtual-desktops",
+        "Version": "0.1.0",
+        "License": "MIT",
+        "Authors": [
+            {
+                "Name": "Koti Project"
+            }
+        ]
+    },
+    "KPackageStructure": "Plasma/Applet",
+    "X-Plasma-API-Minimum-Version": "6.0"
+}

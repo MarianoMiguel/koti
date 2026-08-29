@@ -53,6 +53,15 @@ setIfSupported(topBar, "opacity", "translucent");
 topBar.addWidget("org.kde.plasma.kickoff");
 topBar.addWidget("org.kde.plasma.appmenu");
 
+// Workspace number on the left, next to the menu — where a hyprland or niri
+// bar puts it. Guarded like the mode selector: an older image should still get
+// a working bar.
+try {
+    topBar.addWidget("org.koti.workspaceindicator");
+} catch (e) {
+    print("koti-layout: org.koti.workspaceindicator not installed, skipping: " + e);
+}
+
 addExpandingSpacer(topBar);
 
 // Right-hand group, COSMIC-style: layout mode, tray, clock. The mode selector

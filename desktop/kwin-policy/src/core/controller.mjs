@@ -29,6 +29,9 @@ export { ACTIONS, FRACTIONAL_LAYOUTS, SPECIAL_ACTIONS } from "./actions.mjs";
 
 const DEFAULTS = {
   gap: 8,
+  // Workspaces are per output and numbered from 1, the way hyprland and niri
+  // number them. Nine is the reachable-by-one-keystroke range.
+  workspaceCount: 9,
   scrollWidthRatio: 0.5, // PRD §13: stable widths, not shrink-to-fit
   stageRailRatio: 0.16, // PRD §14: the rail down the left edge
 };
@@ -40,7 +43,108 @@ export function createController(options = {}) {
     options: Object.assign({}, DEFAULTS, options),
     modes: createModeState(),
     cells: new Map(),
+    // outputId → { current } — each monitor has its own current workspace, so
+    // switching workspace on the laptop panel leaves the external monitor
+    // alone (hyprland and niri both behave this way; KWin's virtual desktops
+    // cannot, because the current desktop is global).
+    outputs: new Map(),
   };
+}
+
+// --- workspaces (per output, PRD §18) ---------------------------------------
+
+function ensureOutput(ctl, outputId) {
+  let out = ctl.outputs.get(outputId);
+  if (!out) {
+    out = { current: 1 };
+    ctl.outputs.set(outputId, out);
+  }
+  return out;
+}
+
+export function currentWorkspace(ctl, outputId) {
+  return ensureOutput(ctl, outputId).current;
+}
+
+/** Clamped to 1…workspaceCount, so a stray shortcut cannot strand the user. */
+export function setCurrentWorkspace(ctl, outputId, index) {
+  const out = ensureOutput(ctl, outputId);
+  out.current = clampWorkspace(ctl, index);
+  return out.current;
+}
+
+export function cycleWorkspace(ctl, outputId, delta, { wrap = true } = {}) {
+  const out = ensureOutput(ctl, outputId);
+  const count = ctl.options.workspaceCount;
+  let next = out.current + delta;
+  if (wrap) next = ((next - 1 + count) % count) + 1;
+  out.current = clampWorkspace(ctl, next);
+  return out.current;
+}
+
+function clampWorkspace(ctl, index) {
+  const n = Math.round(index);
+  if (!Number.isFinite(n)) return 1;
+  return Math.max(1, Math.min(ctl.options.workspaceCount, n));
+}
+
+/**
+ * Move a window to another workspace on the same output, keeping everything
+ * remembered about it (PRD §17). The window leaves its old cell's tree/strip/
+ * stage and joins the target's, so each workspace keeps a coherent layout.
+ */
+export function moveWindowToWorkspace(ctl, outputId, id, index, { screen } = {}) {
+  const target = clampWorkspace(ctl, index);
+  const from = workspaceOf(ctl, outputId, id);
+  if (from === null || from === target) return null;
+
+  const source = ensureCell(ctl, from, outputId);
+  const wasExcluded = source.excluded.has(id);
+  detachFromCell(ctl, source, id);
+
+  const destination = ensureCell(ctl, target, outputId);
+  destination.order.push(id);
+  destination.stacking = floating.raiseWindow(destination.stacking, id);
+  destination.focusId = id;
+  if (wasExcluded) destination.excluded.add(id);
+  rememberWindow(ctl.modes, id, { workspace: target });
+  reconcile(ctl, destination, screen);
+  reconcile(ctl, source, screen);
+  return target;
+}
+
+/** Which workspace on this output holds the window, or null. */
+export function workspaceOf(ctl, outputId, id) {
+  for (const cell of ctl.cells.values()) {
+    if (cell.outputId === outputId && cell.order.includes(id)) return cell.workspaceId;
+  }
+  return null;
+}
+
+/**
+ * What an indicator needs to draw: every workspace on this output, whether it
+ * holds anything, and which one is current.
+ */
+export function workspaceSummary(ctl, outputId) {
+  const current = currentWorkspace(ctl, outputId);
+  const summary = [];
+  for (let index = 1; index <= ctl.options.workspaceCount; index++) {
+    const cell = ctl.cells.get(key(index, outputId));
+    const windows = cell ? cell.order.filter((id) => !cell.excluded.has(id)).length : 0;
+    summary.push({
+      index,
+      windows,
+      occupied: windows > 0,
+      active: index === current,
+      mode: mode(ctl, index, outputId),
+    });
+  }
+  return summary;
+}
+
+/** Outputs the controller has seen. */
+export function knownOutputs(ctl) {
+  return [...ctl.outputs.keys()];
 }
 
 function ensureCell(ctl, workspaceId, outputId) {
@@ -96,8 +200,20 @@ export function addWindow(ctl, workspaceId, outputId, id, { geometry, appId, foc
 
 export function removeWindow(ctl, workspaceId, outputId, id) {
   const cell = ensureCell(ctl, workspaceId, outputId);
+  if (!cell.order.includes(id)) return cell;
+  detachFromCell(ctl, cell, id);
+  forgetWindow(ctl.modes, id);
+  return cell;
+}
+
+/**
+ * Take a window out of a cell and out of whatever the cell's modes think about
+ * it, without forgetting the window itself. Closing a window and moving it to
+ * another workspace differ only in whether its memory survives.
+ */
+function detachFromCell(ctl, cell, id) {
   const at = cell.order.indexOf(id);
-  if (at === -1) return cell;
+  if (at === -1) return;
   cell.order.splice(at, 1);
   cell.excluded.delete(id);
   cell.stacking = cell.stacking.filter((w) => w !== id);
@@ -106,14 +222,12 @@ export function removeWindow(ctl, workspaceId, outputId, id) {
   }
   cell.tree = tree.removeWindow(cell.tree, id);
   cell.strip = scrolling.removeWindow(cell.strip, id);
-  // Closing the last window of a stage closes the stage — an app that is gone
-  // should not leave a card in the rail. Only that stage is a candidate, so a
-  // stage the user made and has not filled is untouched.
+  // Emptying a stage closes it — an app that is gone should not leave a card in
+  // the rail. Only that stage is a candidate, so a stage the user made and has
+  // not filled is untouched.
   const owner = stage.stageOf(cell.stages, id);
   cell.stages = stage.ungroupWindow(cell.stages, id);
   if (owner) cell.stages = dropEmptyStages(cell.stages, new Set([owner.id]));
-  forgetWindow(ctl.modes, id);
-  return cell;
 }
 
 /** Windows the controller knows about on this cell, in arrival order. */
@@ -151,12 +265,22 @@ export function focusWindow(ctl, workspaceId, outputId, id, { screen } = {}) {
   cell.focusId = id;
   cell.stacking = floating.raiseWindow(cell.stacking, id);
   rememberWindow(ctl.modes, id, { lastFocus: Date.now() });
+
+  // Focus can arrive before the active mode has caught up with the window —
+  // it may have just been added, restored from minimized, or moved here from
+  // another workspace. Reconcile first so the mode has a slot for it, then
+  // check the slot exists before using it.
+  const active = mode(ctl, workspaceId, outputId);
+  if (active === "scrolling" || active === "stage") {
+    reconcile(ctl, cell, screen);
+  }
+
   // Scrolling is the one mode where focus moves the world (PRD §13).
-  if (mode(ctl, workspaceId, outputId) === "scrolling" && screen) {
+  if (active === "scrolling" && screen && cell.strip.windows.some((w) => w.id === id)) {
     cell.strip = scrolling.focusWindow(cell.strip, id, screen.width);
   }
   // Focusing a window in Stage mode switches to that window's stage.
-  if (mode(ctl, workspaceId, outputId) === "stage") {
+  if (active === "stage") {
     const owner = stage.stageOf(cell.stages, id);
     if (owner && owner.id !== cell.stages.activeId) {
       cell.stages = stage.switchStage(cell.stages, owner.id).state;
@@ -732,13 +856,20 @@ export function serialize(ctl) {
       },
     ]);
   }
-  return JSON.stringify({ version: 1, options: ctl.options, modes: serializeModes(ctl.modes), cells });
+  return JSON.stringify({
+    version: 1,
+    options: ctl.options,
+    modes: serializeModes(ctl.modes),
+    outputs: [...ctl.outputs].map(([id, out]) => [id, { current: out.current }]),
+    cells,
+  });
 }
 
 export function deserialize(json) {
   const raw = JSON.parse(json);
   const ctl = createController(raw.options ?? {});
   ctl.modes = deserializeModes(raw.modes);
+  for (const [id, out] of raw.outputs ?? []) ctl.outputs.set(id, { current: out.current ?? 1 });
   for (const [k, cell] of raw.cells ?? []) {
     ctl.cells.set(k, {
       workspaceId: cell.workspaceId,

@@ -88,6 +88,10 @@ modules:
     dest: /usr/share/plasma/plasmoids/org.koti.modeselector/
 
   - type: copy
+    src: desktop/plasma/workspace-indicator
+    dest: /usr/share/plasma/plasmoids/org.koti.workspaceindicator/
+
+  - type: copy
     src: desktop/plasma/shell-layout
     dest: /usr/share/plasma/look-and-feel/org.koti.lookandfeel/
 

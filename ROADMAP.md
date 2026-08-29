@@ -74,6 +74,10 @@ Goal: iteration is painless — build, test, stage, seal, roll back from the mac
 | M3-04 | ScrollingController | done | stable widths, viewport follows focus, off-strip windows hidden |
 | M3-05 | StageController | doing | per-app stages, one on the canvas, rest hidden — reworked 2026-08-29 after Mariano found it behaved like floating; rail UI is M5-02 |
 | M3-06 | Mode switching + state persistence (PRD §17) | done | round trip verified byte-identical on-device; cross-session persistence lives in the plasmoid's config |
+| M3-07 | Per-monitor workspaces (hyprland/niri), all four modes | doing | core + adapter + shortcuts + indicator widget done; move-to-monitor and workspace naming remain |
+| M3-08 | Direct manipulation: drag/resize means something in every mode | done | drop-by-quadrant, split resize, strip reorder, free placement in floating/stage |
+| M3-09 | Raycast-style placement actions (36) | done | ported from the vicinae/GNOME setup, geometry matched exactly |
+| M3-10 | Remaining hyprland/niri parity per mode | todo | tiling: toggle split orientation, toggle floating, fullscreen, cycle layout policy. scrolling: preset column widths, consume/expel, centre column. see M3-10 |
 
 ## Phase 4 — KWin Effects (M4, PRD §104)
 
@@ -95,6 +99,7 @@ Goal: iteration is painless — build, test, stage, seal, roll back from the mac
 | M5-05 | Project/workspace UI + launcher integration | todo | |
 | M5-07 | Fully transparent top bar and dock | done | Plasma Style `org.koti.transparent` — a panel patch that draws nothing |
 | M5-08 | Click the wallpaper to reveal the desktop (macOS-style) | doing | implemented in the adapter; needs a real click to confirm KWin activates the desktop window |
+| M5-10 | Workspace indicator widget | done | `org.koti.workspaceindicator`, reads VirtualDesktopInfo reactively |
 | M5-09 | Mode indicator follows keyboard-driven mode changes | todo | KWin scripts cannot own a D-Bus name; needs a helper service or polling |
 | M5-06 | Default shell layout: macOS-like top bar + centered dock (Global Theme, PRD §9 v1.3) | done | applied and verified on the P14s; `koti-shell-apply` applies it to a live session |
 
