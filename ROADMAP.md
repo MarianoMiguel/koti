@@ -12,10 +12,9 @@ Phases map to PRD milestones (M0–M12). Phases beyond the active one are delibe
 
 ## Now / Next
 
-- **Now (blocked on Mariano):** install Koti on the P14s (M0-08, docs/install.md); decide repo visibility (M0-10); review app-migration ✋ rows (M6-01)
-- **Next (needs the device):** validate shell layout + mode selector (M5-06), wire the KWin adapter (M3-01), QEMU backend (M7-01), remaining audit facts (M1-02), hardware checklist (M0-08)
-- Local-first backlog drained 2026-08-28 — the 2026-08-28 build ships everything below marked done.
-- **Waiting on Mariano:** P14s install (M0-08), visibility/CI decision (M0-10)
+- **The dev machine is now the device.** Since 2026-08-29 this repo is worked on from the P14s running Koti itself, so "needs the device" is no longer a blocker: KWin scripts hot-load over `org.kde.kwin.Scripting`, panels apply over `org.kde.PlasmaShell.evaluateScript`, and everything is verified against a live Plasma 6 / Wayland session.
+- **Now:** land the desktop work in the image (one batched build); Ghostty + default terminal (M6-06)
+- **Waiting on Mariano:** full Flathub remote vs. Boxes for unverified apps, and which "ChatGPT desktop" (M6-06); hardware acceptance checklist (M0-08)
 
 ---
 
@@ -49,7 +48,7 @@ Goal: iteration is painless — build, test, stage, seal, roll back from the mac
 | M1-05 | `osctl test` — boot candidate in disposable VM | todo | |
 | M1-06 | `osctl stage` / `osctl rollback` | todo | |
 | M1-07 | `osctl seal` — customization → trusted signed deployment | todo | |
-| M1-08 | `osctl desktop reload` — KWin script dev loop | todo | |
+| M1-08 | `osctl desktop reload` — KWin script dev loop | todo | the loop works by hand over `org.kde.kwin.Scripting`; osctl still has to wrap it |
 | M1-09 | Image integration: ship osctl/agentboxd/box + desktop packages via a builder stage | done | verified green (run 33224687190, 2026-08-29); default-enable of theme/script deferred pending secureblue conflict check |
 | M1-10 | `osctl doctor` v0 (PRD §98) | done | deployment/customizer/services/boxes sections; honest "unavailable" off-device |
 
@@ -67,12 +66,12 @@ Goal: iteration is painless — build, test, stage, seal, roll back from the mac
 | ID | Task | Status | Notes |
 |----|------|--------|-------|
 | M3-00 | Pure-logic core for all four modes, locally unit-tested (tiling, scrolling, stage, mode-state) | done | desktop/kwin-policy, 35 tests |
-| M3-01 | ModeController architecture + per-workspace-per-output state | doing | cell model done; KWin/Script package + esbuild bundling ready, adapter v0 observing-only |
-| M3-02 | FloatingController | todo | |
-| M3-03 | TilingController | doing | COSMIC-style split-tree autotiler core landed (PRD §12 v1.2, 18 tests); KWin wiring pending |
-| M3-04 | ScrollingController | todo | |
-| M3-05 | StageController | todo | |
-| M3-06 | Mode switching + state persistence (PRD §17) | todo | |
+| M3-01 | ModeController architecture + per-workspace-per-output state | done | `core/controller.mjs` + real KWin adapter; verified live on the P14s 2026-08-29 |
+| M3-02 | FloatingController | done | `core/floating.mjs`: geometry recall, cascade placement, screen clamping |
+| M3-03 | TilingController | done | split-tree autotiler now wired through the adapter; directional focus/move on Meta+Alt+arrows |
+| M3-04 | ScrollingController | done | stable widths, viewport follows focus, off-strip windows hidden |
+| M3-05 | StageController | doing | canvas beside the rail works; stage rail UI and drag-between-stages are M5-02 |
+| M3-06 | Mode switching + state persistence (PRD §17) | done | round trip verified byte-identical on-device; cross-session persistence lives in the plasmoid's config |
 
 ## Phase 4 — KWin Effects (M4, PRD §104)
 
@@ -87,12 +86,15 @@ Goal: iteration is painless — build, test, stage, seal, roll back from the mac
 
 | ID | Task | Status | Notes |
 |----|------|--------|-------|
-| M5-01 | Mode selector | doing | plasmoid skeleton `org.koti.modeselector` done; policy-layer wiring pending |
+| M5-01 | Mode selector | done | drives KWin through KGlobalAccel; Meta+Shift+Space opens it (PRD §16) |
 | M5-02 | Stage rail | todo | |
 | M5-03 | Security-state indicator | todo | |
 | M5-04 | Customizer UI | todo | |
 | M5-05 | Project/workspace UI + launcher integration | todo | |
-| M5-06 | Default shell layout: macOS-like top bar + centered dock (Global Theme, PRD §9 v1.3) | doing | package done; on-device validation + image install pending |
+| M5-07 | Fully transparent top bar and dock | done | Plasma Style `org.koti.transparent` — a panel patch that draws nothing |
+| M5-08 | Click the wallpaper to reveal the desktop (macOS-style) | doing | implemented in the adapter; needs a real click to confirm KWin activates the desktop window |
+| M5-09 | Mode indicator follows keyboard-driven mode changes | todo | KWin scripts cannot own a D-Bus name; needs a helper service or polling |
+| M5-06 | Default shell layout: macOS-like top bar + centered dock (Global Theme, PRD §9 v1.3) | done | applied and verified on the P14s; `koti-shell-apply` applies it to a live session |
 
 ## Phase 6 — Daily Driver Migration (M6, PRD §106) — may start right after Phase 0
 
@@ -103,6 +105,7 @@ Goal: iteration is painless — build, test, stage, seal, roll back from the mac
 | M6-03 | Host dev tools in image (PRD §81: git, gh, ghostty, neovim, code, osctl) | doing | git/gh/ripgrep/neovim added 2026-08-29 (P14s is installed and booting); ghostty + VS Code pending repo checks |
 | M6-04 | Tailscale + Proton VPN working (PRD §85) | todo | |
 | M6-05 | Acceptance: 7 consecutive working days without the previous OS | todo | |
+| M6-06 | Apps flathub-verified does not carry (Slack, Ghostty, ChatGPT desktop) | doing | cause found: the remote filters by publisher; Ghostty via COPR, Slack needs a decision ✋ |
 
 ## Phase 7 — Agent Box MVP (M7, PRD §107)
 

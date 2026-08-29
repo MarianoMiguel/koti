@@ -2,11 +2,11 @@
   "name": "koti-kwin-policy",
   "private": true,
   "version": "0.1.0",
-  "description": "Koti window policy layer: pure layout core + KWin adapter (PRD §7)",
+  "description": "Koti window policy layer: pure layout core + KWin adapter (PRD \u00a77)",
   "type": "module",
   "scripts": {
     "test": "node --test",
-    "build:kwin": "esbuild src/kwin/main.js --bundle --format=iife --outfile=package/contents/code/main.js"
+    "build:kwin": "esbuild src/kwin/main.js --bundle --format=iife --target=es2016 --outfile=package/contents/code/main.js"
   },
   "devDependencies": {
     "esbuild": "^0.25.0"

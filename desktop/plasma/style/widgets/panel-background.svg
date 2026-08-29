@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Koti panel background (PRD §9): nothing at all.
+
+  Plasma has no "fully transparent panel" setting — the strongest built-in
+  option, Adaptive opacity, still paints a plate. Panel chrome comes from the
+  Plasma Style's nine-patch instead, so the way to a genuinely transparent bar
+  is a style whose panel patch draws nothing. Every other asset is absent from
+  this package, and Plasma falls back to the default (Breeze) theme for those,
+  so only the panels change.
+
+  The nine patches must exist and have real bounds even though they paint
+  nothing: KSvg slices the panel by these elements' bounding boxes, and derives
+  the panel's content margins from the border thickness. 8px borders therefore
+  give applets the same breathing room Breeze does.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48" version="1.1">
+  <title>panel-background</title>
+  <g id="panel-background-patches" fill="#000000" fill-opacity="0" stroke="none">
+    <rect id="topleft"     x="0"  y="0"  width="8"  height="8"/>
+    <rect id="top"         x="8"  y="0"  width="32" height="8"/>
+    <rect id="topright"    x="40" y="0"  width="8"  height="8"/>
+    <rect id="left"        x="0"  y="8"  width="8"  height="32"/>
+    <rect id="center"      x="8"  y="8"  width="32" height="32"/>
+    <rect id="right"       x="40" y="8"  width="8"  height="32"/>
+    <rect id="bottomleft"  x="0"  y="40" width="8"  height="8"/>
+    <rect id="bottom"      x="8"  y="40" width="32" height="8"/>
+    <rect id="bottomright" x="40" y="40" width="8"  height="8"/>
+
+    <!-- Content margins. Explicit, so a future change to the patch size cannot
+         silently re-space every applet in the bar. -->
+    <rect id="hint-top-margin"    x="8"  y="0"  width="32" height="4"/>
+    <rect id="hint-bottom-margin" x="8"  y="44" width="32" height="4"/>
+    <rect id="hint-left-margin"   x="0"  y="8"  width="4"  height="32"/>
+    <rect id="hint-right-margin"  x="44" y="8"  width="4"  height="32"/>
+  </g>
+</svg>

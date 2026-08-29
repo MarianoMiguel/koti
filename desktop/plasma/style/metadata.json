@@ -1,0 +1,16 @@
+{
+    "KPlugin": {
+        "Id": "org.koti.transparent",
+        "Name": "Koti",
+        "Description": "Breeze with fully transparent panels — the top bar and dock float over the wallpaper, macOS-style",
+        "Version": "0.1.0",
+        "License": "MIT",
+        "Authors": [
+            {
+                "Name": "Koti Project"
+            }
+        ]
+    },
+    "KPackageStructure": "Plasma/Theme",
+    "X-Plasma-API-Minimum-Version": "6.0"
+}

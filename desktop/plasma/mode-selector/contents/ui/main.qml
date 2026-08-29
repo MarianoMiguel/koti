@@ -1,29 +1,32 @@
 /*
- * Koti layout-mode selector (PRD §16): lives at the top right beside the
- * system tray. One click opens the four modes; no per-mode keybinding to
- * memorize.
+ * Koti layout-mode selector (PRD §16): sits in the top bar's right-hand group,
+ * next to the tray, COSMIC-style. One click shows the four modes; nobody has to
+ * memorize a keybinding per mode.
  *
- * Wiring to the window-policy layer (KWin script) lands with M5-01: the
- * plasmoid will read/set the active cell's mode over the policy script's
- * D-Bus surface. Until then it holds local state so the UX is reviewable.
+ * How it drives the window policy: the KWin script (org.koti.windowpolicy)
+ * registers one global shortcut per mode, and this invokes them through
+ * KGlobalAccel. That is the only channel a plasmoid and a KWin script share —
+ * a KWin script cannot own a D-Bus name of its own — and it has the useful
+ * side effect that every mode is also bindable to a key in System Settings.
  */
 
 import QtQuick
 import QtQuick.Layouts
 import org.kde.plasma.components as PC3
 import org.kde.plasma.plasmoid
+import org.kde.plasma.plasma5support as P5Support
 import org.kde.kirigami as Kirigami
 
 PlasmoidItem {
     id: root
 
-    property string currentMode: "floating"
+    readonly property string currentMode: Plasmoid.configuration.mode
 
     readonly property var modes: [
-        { id: "floating",  label: i18n("Floating"),  icon: "window",             hint: i18n("Windows move freely") },
-        { id: "tiling",    label: i18n("Tiling"),    icon: "view-grid",          hint: i18n("Windows tile automatically") },
-        { id: "scrolling", label: i18n("Scrolling"), icon: "sidebar-expand",     hint: i18n("Windows on an endless strip") },
-        { id: "stage",     label: i18n("Stage"),     icon: "window-duplicate",   hint: i18n("Windows grouped into Stages") }
+        { id: "floating",  label: i18n("Floating"),  shortcut: "Koti Layout Floating",  icon: "window",           hint: i18n("Windows move freely") },
+        { id: "tiling",    label: i18n("Tiling"),    shortcut: "Koti Layout Tiling",    icon: "view-grid",        hint: i18n("Windows tile automatically") },
+        { id: "scrolling", label: i18n("Scrolling"), shortcut: "Koti Layout Scrolling", icon: "sidebar-expand",   hint: i18n("Windows on an endless strip") },
+        { id: "stage",     label: i18n("Stage"),     shortcut: "Koti Layout Stage",     icon: "window-duplicate", hint: i18n("Windows grouped into Stages") }
     ]
 
     function modeById(id) {
@@ -33,6 +36,50 @@ PlasmoidItem {
             }
         }
         return modes[0]
+    }
+
+    // Fire-and-forget: every source is disconnected as soon as it reports, so
+    // repeated switches do not pile up executable sources.
+    P5Support.DataSource {
+        id: executable
+        engine: "executable"
+        connectedSources: []
+        onNewData: function (source, data) {
+            disconnectSource(source)
+        }
+    }
+
+    function applyMode(id) {
+        var name = root.modeById(id).shortcut
+        executable.connectSource(
+            "gdbus call --session --dest org.kde.kglobalaccel"
+            + " --object-path /component/kwin"
+            + " --method org.kde.kglobalaccel.Component.invokeShortcut "
+            + "'" + name + "'")
+    }
+
+    function selectMode(id) {
+        Plasmoid.configuration.mode = id
+        applyMode(id)
+    }
+
+    // The KWin script is loaded by the compositor, which may not have got there
+    // by the time the panel is up; a short delay makes login restore reliable
+    // without the plasmoid having to watch for KWin.
+    Timer {
+        id: restoreTimer
+        interval: 4000
+        repeat: false
+        onTriggered: {
+            if (Plasmoid.configuration.restoreOnLogin && root.currentMode !== "floating") {
+                root.applyMode(root.currentMode)
+            }
+        }
+    }
+
+    Component.onCompleted: {
+        Plasmoid.globalShortcut = "Meta+Shift+Space" // PRD §16 suggested accelerator
+        restoreTimer.start()
     }
 
     preferredRepresentation: compactRepresentation
@@ -69,9 +116,7 @@ PlasmoidItem {
                 PC3.ToolTip.visible: hovered
 
                 onClicked: {
-                    // M5-01: forward to the window-policy script instead of
-                    // only storing locally.
-                    root.currentMode = modelData.id
+                    root.selectMode(modelData.id)
                     root.expanded = false
                 }
             }

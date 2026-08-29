@@ -1,0 +1,14 @@
+# Defaults applied when the Koti Global Theme is selected.
+#
+# A look-and-feel package can set defaults across other components' config
+# files; this is where Koti's shell choices become the machine's choices
+# without a first-boot script.
+
+[plasmarc][Theme]
+name=org.koti.transparent
+
+[kwinrc][Plugins]
+org.koti.windowpolicyEnabled=true
+
+[kdeglobals][KDE]
+widgetStyle=Breeze

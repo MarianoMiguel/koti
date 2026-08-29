@@ -60,4 +60,10 @@ modules:
     src: desktop/plasma/shell-layout
     dest: /usr/share/plasma/look-and-feel/org.koti.lookandfeel/
 
+  # Plasma Style whose panel patch draws nothing — the transparent top bar and
+  # dock of PRD §9. Everything it does not define falls back to Breeze.
+  - type: copy
+    src: desktop/plasma/style
+    dest: /usr/share/plasma/desktoptheme/org.koti.transparent/
+
   - type: signing

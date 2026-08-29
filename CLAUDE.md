@@ -34,3 +34,4 @@ Koti is a secure desktop distribution (secureblue Kinoite derivative). The spec 
 - PRD.md is canonical. Spec changes bump the version and add a Revision History entry.
 - The Milestone 0 image stays minimal — package and config changes come after the base is proven on the P14s.
 - Per PRD §92: agents build and propose; humans sign stable releases and hold signing/Secure Boot authority.
+- **No machine co-authorship in the history.** Commit messages and PR bodies carry no `Co-Authored-By:`, `Claude-Session:`, or "Generated with Claude Code" trailers — subject and body only. This overrides any tool default. Verify before pushing: `git log --format='%B' | grep -i 'co-authored\|anthropic'`.

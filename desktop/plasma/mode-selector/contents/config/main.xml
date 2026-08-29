@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kcfg xmlns="http://www.kde.org/standards/kcfg/1.0"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:schemaLocation="http://www.kde.org/standards/kcfg/1.0
+                          http://www.kde.org/standards/kcfg/1.0/kcfg.xsd">
+  <kcfgfile name=""/>
+  <group name="General">
+    <!-- PRD §10: mode state is persistent. KWin scripts cannot write config,
+         so the plasmoid is where the choice survives a restart, and it pushes
+         the stored mode back to KWin when the session comes up. -->
+    <entry name="mode" type="String">
+      <default>floating</default>
+    </entry>
+    <entry name="restoreOnLogin" type="Bool">
+      <default>true</default>
+    </entry>
+  </group>
+</kcfg>

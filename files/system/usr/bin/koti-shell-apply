@@ -1,0 +1,114 @@
+#!/usr/bin/env bash
+# koti-shell-apply — apply the Koti shell layout (PRD §9) to the running session.
+#
+# The Koti Global Theme carries the same layout, but a Global Theme only
+# rearranges panels when it is *selected* with "Desktop layout" checked. That
+# makes it useless for iterating and for anyone who rebased into an image whose
+# theme was never applied. This applies the layout to the live session instead:
+# top bar with the tray group right-aligned, centered dock at the bottom.
+#
+# Idempotent: the layout script removes existing panels first, so re-running
+# this after a change gives you one top bar and one dock, never a stack of them.
+set -euo pipefail
+
+# When run from a checkout this file sits at files/system/usr/bin/, four
+# levels below the repo root.
+REPO_LAYOUT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/../../../../desktop/plasma/shell-layout/contents/layouts/org.kde.plasma.desktop-layout.js"
+IMAGE_LAYOUT="/usr/share/plasma/look-and-feel/org.koti.lookandfeel/contents/layouts/org.kde.plasma.desktop-layout.js"
+
+usage() {
+    cat <<'USAGE'
+Usage: koti-shell-apply [--layout FILE] [--install-packages] [--dry-run]
+
+  --layout FILE        use this layout script instead of the installed one
+  --install-packages   (re)install the Koti plasmoid + Global Theme from a
+                       repo checkout before applying, so the mode selector
+                       exists even on an older image
+  --dry-run            print the layout script that would be applied
+USAGE
+}
+
+LAYOUT=""
+INSTALL_PACKAGES=0
+DRY_RUN=0
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --layout) LAYOUT="${2:?--layout needs a file}"; shift 2 ;;
+        --install-packages) INSTALL_PACKAGES=1; shift ;;
+        --dry-run) DRY_RUN=1; shift ;;
+        -h|--help) usage; exit 0 ;;
+        *) echo "koti-shell-apply: unknown argument: $1" >&2; usage >&2; exit 2 ;;
+    esac
+done
+
+# Prefer an explicit path, then a repo checkout (so `./files/system/usr/bin/
+# koti-shell-apply` run from the tree tests your edits), then the image copy.
+if [ -z "$LAYOUT" ]; then
+    if [ -f "$REPO_LAYOUT" ]; then
+        LAYOUT="$REPO_LAYOUT"
+    elif [ -f "$IMAGE_LAYOUT" ]; then
+        LAYOUT="$IMAGE_LAYOUT"
+    else
+        echo "koti-shell-apply: no layout script found (looked in the repo and $IMAGE_LAYOUT)" >&2
+        exit 1
+    fi
+fi
+[ -r "$LAYOUT" ] || { echo "koti-shell-apply: cannot read $LAYOUT" >&2; exit 1; }
+
+if [ "$DRY_RUN" = 1 ]; then
+    cat "$LAYOUT"
+    exit 0
+fi
+
+# --- optional: install the first-party Plasma packages from a checkout -------
+if [ "$INSTALL_PACKAGES" = 1 ]; then
+    PLASMA_DIR="$(cd -- "$(dirname -- "$LAYOUT")/../../.." && pwd)/.."
+    MODE_SELECTOR="$PLASMA_DIR/mode-selector"
+    SHELL_LAYOUT="$PLASMA_DIR/shell-layout"
+    if ! command -v kpackagetool6 >/dev/null 2>&1; then
+        echo "koti-shell-apply: kpackagetool6 not found; skipping package install" >&2
+    else
+        for spec in "Plasma/Applet:$MODE_SELECTOR" "Plasma/LookAndFeel:$SHELL_LAYOUT"; do
+            type="${spec%%:*}"; path="${spec#*:}"
+            [ -d "$path" ] || { echo "koti-shell-apply: no package at $path, skipping" >&2; continue; }
+            # --upgrade fails when nothing is installed yet, and --install fails
+            # when something is; trying both in order covers a first run and a
+            # re-run without the caller having to know which state they are in.
+            kpackagetool6 --type "$type" --upgrade "$path" >/dev/null 2>&1 \
+                || kpackagetool6 --type "$type" --install "$path" >/dev/null 2>&1 \
+                || echo "koti-shell-apply: could not install $path" >&2
+        done
+        # A newly installed applet is not in plasmashell's package cache yet, so
+        # the layout below could not add it without a restart.
+        echo "koti-shell-apply: restarting plasmashell to pick up new packages"
+        systemctl --user restart plasma-plasmashell.service || true
+        for _ in $(seq 1 30); do
+            if busctl --user status org.kde.plasmashell >/dev/null 2>&1; then break; fi
+            sleep 1
+        done
+    fi
+fi
+
+# --- apply to the live session ----------------------------------------------
+if ! busctl --user status org.kde.plasmashell >/dev/null 2>&1; then
+    echo "koti-shell-apply: plasmashell is not running on this session bus" >&2
+    exit 1
+fi
+
+SCRIPT="$(cat "$LAYOUT")"
+OUT="$(gdbus call --session \
+    --dest org.kde.plasmashell \
+    --object-path /PlasmaShell \
+    --method org.kde.PlasmaShell.evaluateScript \
+    "$SCRIPT" 2>&1)" || {
+    echo "koti-shell-apply: evaluateScript failed:" >&2
+    echo "$OUT" >&2
+    exit 1
+}
+
+# evaluateScript reports script-level errors in its return value rather than as
+# a D-Bus error, so an empty-string reply — ('',) — is the success case.
+case "$OUT" in
+    "('',)"|"(''"*) echo "koti-shell-apply: layout applied" ;;
+    *) echo "koti-shell-apply: plasma reported: $OUT" >&2; exit 1 ;;
+esac

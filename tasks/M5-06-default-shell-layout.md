@@ -1,7 +1,7 @@
 ---
 id: M5-06
 title: Default shell layout — macOS-like top bar + centered dock
-status: doing
+status: done
 depends: []
 ---
 
@@ -24,3 +24,8 @@ Fresh Koti installs boot into the PRD §9 v1.3 shell (per Mariano, 2026-08-28): 
 ## Worklog
 
 - 2026-08-28: Packages authored local-first with install/test instructions in `desktop/plasma/README.md`. Cannot execute Plasma on the dev host — needs on-device validation.
+
+- 2026-08-29: Validated on the P14s against a live session. Live panel state reads `top[align=center len=fill float=false h=29]` and `bottom[align=center len=fit float=true h=54]` — the centered, content-hugging floating dock the PRD asks for.
+- 2026-08-29: The gap this task had missed: a Global Theme only rearranges panels when it is *selected* with "Desktop layout" checked, so a rebased machine never sees the layout. Added `files/system/usr/bin/koti-shell-apply`, which feeds the same script to a running session over `org.kde.PlasmaShell.evaluateScript`. The layout script is now idempotent (it removes existing panels first) so it can serve both paths.
+- 2026-08-29: The panel spacer needed `expanding=true` written explicitly — the applet's default is a fixed gap, which would have left the tray floating mid-bar instead of right-aligned.
+- 2026-08-29: Global menu caveat — `plasma-gmenudbusmenuproxy.service` is failed on this machine, so GTK apps will not populate the appmenu. Tracked separately if it matters.
