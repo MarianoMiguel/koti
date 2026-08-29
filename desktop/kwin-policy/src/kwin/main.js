@@ -303,6 +303,21 @@ function moveDirection(direction) {
 
 var lastActivatedManaged = null;
 
+// KWin scripts see activation, not mouse buttons, so this cannot tell a left
+// click on the wallpaper from a right click that only wanted the context menu.
+// Both activate the desktop window. Configurable for exactly that reason —
+// `readConfig` returns the default until the package ships a config UI.
+var revealDesktopOnWallpaperClick = readConfig("revealDesktopOnWallpaperClick", true);
+
+/** Is there anything on screen for a reveal to actually reveal? */
+function hasVisibleManagedWindow() {
+    var list = workspace.windowList();
+    for (var i = 0; i < list.length; i++) {
+        if (isManaged(list[i]) && !list[i].minimized) return true;
+    }
+    return false;
+}
+
 function onWindowActivated(window) {
     if (!window) return;
     if (isManaged(window)) {
@@ -314,10 +329,12 @@ function onWindowActivated(window) {
         applyLayout(cell, {});
         return;
     }
-    // Activating the wallpaper means the user clicked past every window —
-    // macOS reads that as "show me the desktop", and so do we. Only from a real
-    // window, so this never fires while already peeking.
-    if (window.desktopWindow && lastActivatedManaged !== null) {
+    // Clicking past every window onto the wallpaper is what macOS reads as
+    // "show me the desktop". Only ever from a real window, and only when
+    // something is actually covering the desktop, so it cannot fire twice or
+    // fire into an already-empty screen.
+    if (!revealDesktopOnWallpaperClick) return;
+    if (window.desktopWindow && lastActivatedManaged !== null && hasVisibleManagedWindow()) {
         lastActivatedManaged = null;
         workspace.slotToggleShowDesktop();
     }
