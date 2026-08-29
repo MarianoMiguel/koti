@@ -23,6 +23,10 @@ var ctl = controller.createController({ gap: GAP });
 // this we would answer our own notification forever.
 var applying = false;
 
+// Windows this script minimized to get them off the canvas, so we know which
+// ones are ours to bring back.
+var hiddenByUs = {};
+
 // --- identity ---------------------------------------------------------------
 
 function windowId(window) {
@@ -118,10 +122,20 @@ function applyLayout(cell, options) {
             // Scrolling and Stage keep windows that are off the canvas alive but
             // out of sight; minimize is the only hide KWin scripting exposes.
             if (!placement.visible) {
-                if (!window.minimized && window.minimizable) window.minimized = true;
+                if (!window.minimized && window.minimizable) {
+                    window.minimized = true;
+                    hiddenByUs[placement.id] = true;
+                }
                 continue;
             }
-            if (window.minimized) window.minimized = false;
+            // Only un-minimize what *we* minimized. A window the user
+            // minimized themselves stays minimized — PRD §11 promises native
+            // minimize, and restoring it behind their back is not that.
+            if (window.minimized) {
+                if (!hiddenByUs[placement.id]) continue;
+                window.minimized = false;
+            }
+            delete hiddenByUs[placement.id];
             if (!placement.rect) continue;
             if (!window.moveable && !window.resizeable) continue;
             setGeometry(window, placement.rect);
@@ -175,6 +189,10 @@ function attach(window) {
     // their geometry the §17 floating restore has nothing to restore to.
     controller.addWindow(ctl, cell.workspaceId, cell.outputId, id, {
         geometry: rectOf(window),
+        // Stage groups by application (PRD §14): resourceClass is KWin's
+        // notion of "which app is this", so two Konsole windows share a stage
+        // while Konsole and the browser get one each.
+        appId: window.resourceClass ? String(window.resourceClass) : null,
     });
 
     if (connected[id]) return;
@@ -202,6 +220,7 @@ function detach(window) {
     var cell = cellOf(window);
     var id = windowId(window);
     delete connected[id];
+    delete hiddenByUs[id];
     controller.removeWindow(ctl, cell.workspaceId, cell.outputId, id);
     applyLayout(cell, {});
 }

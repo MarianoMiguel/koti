@@ -72,7 +72,7 @@ Goal: iteration is painless — build, test, stage, seal, roll back from the mac
 | M3-02 | FloatingController | done | `core/floating.mjs`: geometry recall, cascade placement, screen clamping |
 | M3-03 | TilingController | done | split-tree autotiler now wired through the adapter; directional focus/move on Meta+Alt+arrows |
 | M3-04 | ScrollingController | done | stable widths, viewport follows focus, off-strip windows hidden |
-| M3-05 | StageController | doing | canvas beside the rail works; stage rail UI and drag-between-stages are M5-02 |
+| M3-05 | StageController | doing | per-app stages, one on the canvas, rest hidden — reworked 2026-08-29 after Mariano found it behaved like floating; rail UI is M5-02 |
 | M3-06 | Mode switching + state persistence (PRD §17) | done | round trip verified byte-identical on-device; cross-session persistence lives in the plasmoid's config |
 
 ## Phase 4 — KWin Effects (M4, PRD §104)

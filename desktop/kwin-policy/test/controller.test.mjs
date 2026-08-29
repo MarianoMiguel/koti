@@ -98,24 +98,79 @@ test("focus scrolls the viewport the minimum needed to reveal the window", () =>
   assert.equal(rectOf(res, "c").x + rectOf(res, "c").width, screen.width);
 });
 
-test("stage puts the active stage on a canvas beside the rail (PRD §14)", () => {
-  const c = withWindows("a");
+function withApps(...pairs) {
+  const c = ctl.createController({ gap: 0 });
+  for (const [id, appId] of pairs) ctl.addWindow(c, WS, OUT, id, { appId });
   ctl.switchMode(c, WS, OUT, "stage", { screen });
-  const rect = rectOf(layout(c), "a");
-  assert.ok(rect.x >= 160, `expected the canvas to start after the rail, got x=${rect.x}`);
+  return c;
+}
+
+const stageCount = (c) => ctl.stages(c, WS, OUT).stages.length;
+
+test("stage gives each app its own stage and shows only the front one (PRD §14)", () => {
+  const c = withApps(["a", "editor"], ["b", "browser"], ["d", "chat"]);
+  assert.equal(stageCount(c), 3);
+  // The last window added has focus, so its stage is the one on the canvas.
+  assert.deepEqual(visibleIds(layout(c)), ["d"]);
 });
 
-test("stage shows only the active stage's windows", () => {
-  const c = withWindows("a", "b");
-  ctl.switchMode(c, WS, OUT, "stage", { screen });
-  const second = ctl.newStage(c, WS, OUT, "Comms");
-  const other = second.stages[second.stages.length - 1].id;
-  const cell = c.cells.get(`${WS} ${OUT}`);
-  ctl.switchStage(c, WS, OUT, other);
-  cell.stages = { ...cell.stages };
-  assert.deepEqual(visibleIds(layout(c)), []);
-  ctl.switchStage(c, WS, OUT, 1);
+test("a second window of the same app joins that app's stage", () => {
+  const c = withApps(["a", "editor"], ["b", "editor"], ["d", "browser"]);
+  assert.equal(stageCount(c), 2);
+  ctl.focusWindow(c, WS, OUT, "a", { screen });
   assert.deepEqual(visibleIds(layout(c)).sort(), ["a", "b"]);
+});
+
+test("focusing a window off the canvas switches to its stage", () => {
+  const c = withApps(["a", "editor"], ["b", "browser"]);
+  assert.deepEqual(visibleIds(layout(c)), ["b"]);
+  ctl.focusWindow(c, WS, OUT, "a", { screen });
+  assert.deepEqual(visibleIds(layout(c)), ["a"]);
+});
+
+test("the frontmost window is centred and larger than the one behind it", () => {
+  const c = withApps(["a", "editor"], ["b", "editor"]);
+  ctl.focusWindow(c, WS, OUT, "b", { screen });
+  const res = layout(c);
+  const front = rectOf(res, "b");
+  const behind = rectOf(res, "a");
+  assert.ok(front.width > behind.width, "front window should be the largest");
+  // Centred horizontally on the canvas (one stage, so no rail).
+  assert.equal(front.x + front.width / 2, screen.x + screen.width / 2);
+  assert.ok(behind.x < front.x && behind.y < front.y, "the window behind peeks up-left");
+});
+
+test("the rail takes no space until there is a second stage", () => {
+  const one = withApps(["a", "editor"]);
+  assert.equal(rectOf(layout(one), "a").x, 40); // centred at 92% of a 1000px canvas
+  const two = withApps(["a", "editor"], ["b", "browser"]);
+  assert.ok(rectOf(layout(two), "b").x > 160, "canvas should start after the rail");
+});
+
+test("closing a window takes its now-empty stage with it", () => {
+  const c = withApps(["a", "editor"], ["b", "browser"]);
+  assert.equal(stageCount(c), 2);
+  ctl.removeWindow(c, WS, OUT, "b");
+  layout(c);
+  assert.equal(stageCount(c), 1);
+  assert.deepEqual(visibleIds(layout(c)), ["a"]);
+});
+
+test("a stage the user created but has not filled is not pruned", () => {
+  const c = withApps(["a", "editor"]);
+  ctl.newStage(c, WS, OUT, "Comms");
+  layout(c);
+  assert.equal(stageCount(c), 2);
+});
+
+test("stage membership survives a round trip out of Stage and back (PRD §17)", () => {
+  const c = withApps(["a", "editor"], ["b", "browser"]);
+  ctl.focusWindow(c, WS, OUT, "a", { screen });
+  const before = ctl.stages(c, WS, OUT).stages.map((s) => s.windowIds.join("+")).sort();
+  ctl.switchMode(c, WS, OUT, "floating", { screen });
+  ctl.switchMode(c, WS, OUT, "stage", { screen });
+  const after = ctl.stages(c, WS, OUT).stages.map((s) => s.windowIds.join("+")).sort();
+  assert.deepEqual(after, before);
 });
 
 test("mode is tracked per workspace-per-output (PRD §10 v1.1)", () => {
