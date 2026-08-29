@@ -62,13 +62,15 @@ fi
 
 # --- optional: install the first-party Plasma packages from a checkout -------
 if [ "$INSTALL_PACKAGES" = 1 ]; then
-    PLASMA_DIR="$(cd -- "$(dirname -- "$LAYOUT")/../../.." && pwd)/.."
+    # …/shell-layout/contents/layouts → …/desktop/plasma
+    PLASMA_DIR="$(cd -- "$(dirname -- "$LAYOUT")/../../.." && pwd)"
     MODE_SELECTOR="$PLASMA_DIR/mode-selector"
     SHELL_LAYOUT="$PLASMA_DIR/shell-layout"
+    STYLE="$PLASMA_DIR/style"
     if ! command -v kpackagetool6 >/dev/null 2>&1; then
         echo "koti-shell-apply: kpackagetool6 not found; skipping package install" >&2
     else
-        for spec in "Plasma/Applet:$MODE_SELECTOR" "Plasma/LookAndFeel:$SHELL_LAYOUT"; do
+        for spec in "Plasma/Applet:$MODE_SELECTOR" "Plasma/LookAndFeel:$SHELL_LAYOUT" "Plasma/Theme:$STYLE"; do
             type="${spec%%:*}"; path="${spec#*:}"
             [ -d "$path" ] || { echo "koti-shell-apply: no package at $path, skipping" >&2; continue; }
             # --upgrade fails when nothing is installed yet, and --install fails
@@ -78,6 +80,13 @@ if [ "$INSTALL_PACKAGES" = 1 ]; then
                 || kpackagetool6 --type "$type" --install "$path" >/dev/null 2>&1 \
                 || echo "koti-shell-apply: could not install $path" >&2
         done
+        # The transparent panels only appear once the style is selected; a
+        # freshly installed style is not selected by merely existing.
+        if command -v plasma-apply-desktoptheme >/dev/null 2>&1; then
+            plasma-apply-desktoptheme org.koti.transparent >/dev/null 2>&1 \
+                || echo "koti-shell-apply: could not select the Koti Plasma Style" >&2
+        fi
+
         # A newly installed applet is not in plasmashell's package cache yet, so
         # the layout below could not add it without a restart.
         echo "koti-shell-apply: restarting plasmashell to pick up new packages"
