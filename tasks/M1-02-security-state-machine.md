@@ -17,7 +17,7 @@ depends: [M1-01]
 - [x] no Docker root socket; user not in docker/libvirt/uinput groups
 - [x] intentional deviations rendered separately (◆, drives CUSTOMIZING)
 - [ ] expected kernel arguments
-- [ ] unconfined userns restricted (needs the secureblue-variant-specific expectation)
+- [ ] unconfined userns restricted — must read the `ujust set-container-userns` state (secureblue's supported toggle, verified 2026-08-29): off → Pass; on → IntentionalDeviation (Workshop enablement, PRD §45), never a silent Pass
 - [ ] container policy as expected (`/etc/containers/policy.json` vs shipped policy)
 - [ ] no development KWin code active (depends on M1-03's customizer contract)
 
