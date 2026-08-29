@@ -19,4 +19,5 @@ The four window modes (PRD §10–§14) exist as pure, KWin-free layout logic th
 
 ## Worklog
 
+- 2026-08-28 (later): Added `core/tiling-tree.mjs` — the COSMIC-style concealed split-tree autotiler (PRD §12 v1.2): focused-tile insertion with aspect-ratio orientation, quadrant drag-drop, shared-edge resize, directional focus/move, clean collapse on close. 18 more tests; suite now 53 green. This is the real Automatic policy; the list-based `computeTiling` remains for the fixed columns/rows/main-stack policies.
 - 2026-08-28: Implemented `desktop/kwin-policy/src/core/{tiling,scrolling,stage,mode-state}.mjs` + 35 node:test cases, all green. `src/kwin/main.js` documents the (unwired) adapter contract; wiring happens on the P14s via `osctl desktop reload` (M1-08). Automatic tiling ≡ main-stack at 0.5 ratio, which reproduces all three PRD diagrams from one rule.

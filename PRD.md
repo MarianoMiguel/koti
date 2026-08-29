@@ -1,7 +1,7 @@
 # Koti PRD — A Secure Desktop That Feels Like Home
 
 **Status:** Canonical implementation specification
-**Version:** 1.1 (revised 2026-08-28 — see Revision History)
+**Version:** 1.2 (revised 2026-08-28 — see Revision History)
 **Source:** github.com/MarianoMiguel/koti
 **Base:** secureblue Kinoite / Fedora Atomic
 **Desktop:** KDE Plasma + KWin on Wayland
@@ -14,6 +14,8 @@
 ---
 
 # Revision History
+
+**1.2 (2026-08-28).** Automatic tiling specified as a concealed split-tree autotiler with COSMIC-class ergonomics (§12), per Mariano's direction. The tree is internal; the user vocabulary stays "windows tile nicely", never "containers".
 
 **1.1 (2026-08-28).** Revised during project bootstrap. Intent unchanged. Changes:
 
@@ -458,6 +460,19 @@ Default layouts:
 ```
 
 Use KWin's native tiling primitives wherever practical.
+
+### Automatic policy (v1.2)
+
+Automatic is a concealed split-tree autotiler with COSMIC-class ergonomics:
+
+* a new window splits the **focused** tile; split orientation follows the tile's aspect ratio (wide → side-by-side, tall → stacked);
+* with no meaningful focus target, the largest tile splits, keeping unattended layouts balanced;
+* dragging a window over another shows a quadrant preview (left/right/top/bottom) and inserts accordingly;
+* dragging a shared edge resizes the underlying split;
+* directional keyboard focus and move;
+* closing a window collapses its split cleanly.
+
+The split tree is an implementation detail. It never becomes UI vocabulary: no "containers", no "parents", no layout commands to memorize.
 
 Supported layout policies:
 

@@ -66,7 +66,7 @@ Goal: iteration is painless — build, test, stage, seal, roll back from the mac
 | M3-00 | Pure-logic core for all four modes, locally unit-tested (tiling, scrolling, stage, mode-state) | done | desktop/kwin-policy, 35 tests |
 | M3-01 | ModeController architecture + per-workspace-per-output state | doing | cell model done in core; KWin adapter pending |
 | M3-02 | FloatingController | todo | |
-| M3-03 | TilingController | todo | |
+| M3-03 | TilingController | doing | COSMIC-style split-tree autotiler core landed (PRD §12 v1.2, 18 tests); KWin wiring pending |
 | M3-04 | ScrollingController | todo | |
 | M3-05 | StageController | todo | |
 | M3-06 | Mode switching + state persistence (PRD §17) | todo | |
@@ -104,8 +104,8 @@ Goal: iteration is painless — build, test, stage, seal, roll back from the mac
 
 | ID | Task | Status | Notes |
 |----|------|--------|-------|
-| M7-01 | `agentboxd` skeleton: KVM/QEMU lifecycle | todo | |
-| M7-02 | `box create/start/stop/shell/delete` CLI | todo | |
+| M7-01 | `agentboxd` skeleton: KVM/QEMU lifecycle | doing | domain model + daemon stub done (11 tests); QEMU backend is on-device work |
+| M7-02 | `box create/start/stop/shell/delete` CLI | doing | full command surface works in-process on mock runtime; shell/open attach pending |
 | M7-03 | Full Developer guest image (browser, shell, root, git, SSH, Claude, Codex) | todo | |
 | M7-04 | Virtual display + `box open` | todo | |
 | M7-05 | Persistence + `box snapshot` / `box reset` | todo | |
