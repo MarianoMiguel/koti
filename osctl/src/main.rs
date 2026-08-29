@@ -1,5 +1,6 @@
 mod audit;
 mod customizer;
+mod doctor;
 mod state;
 
 use clap::{Parser, Subcommand};
@@ -24,6 +25,11 @@ enum Command {
     },
     /// System diagnostics (PRD §98)
     Doctor,
+    /// Manage Agent Boxes (same surface as the `box` command)
+    Box {
+        #[command(subcommand)]
+        action: agentboxd::cli::Cmd,
+    },
 }
 
 #[derive(Subcommand)]
@@ -60,8 +66,10 @@ fn main() {
             }
         }
         Command::Doctor => {
-            eprintln!("osctl doctor: not implemented yet (Phase 1)");
-            std::process::exit(1);
+            print!("{}", doctor::run(probes.as_ref(), &doctor::PlatformDoctorProbes));
+        }
+        Command::Box { action } => {
+            std::process::exit(agentboxd::cli::run(action));
         }
     }
 }

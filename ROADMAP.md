@@ -50,6 +50,7 @@ Goal: iteration is painless — build, test, stage, seal, roll back from the mac
 | M1-07 | `osctl seal` — customization → trusted signed deployment | todo | |
 | M1-08 | `osctl desktop reload` — KWin script dev loop | todo | |
 | M1-09 | Image integration: ship osctl/agentboxd/box + desktop packages via a builder stage | done | verified green (run 33224687190, 2026-08-29); default-enable of theme/script deferred pending secureblue conflict check |
+| M1-10 | `osctl doctor` v0 (PRD §98) | done | deployment/customizer/services/boxes sections; honest "unavailable" off-device |
 
 ## Phase 2 — Four-Mode Behavioral Prototype (M2, PRD §102)
 
@@ -96,7 +97,7 @@ Goal: iteration is painless — build, test, stage, seal, roll back from the mac
 
 | ID | Task | Status | Notes |
 |----|------|--------|-------|
-| M6-01 | Application audit: map current daily apps → Flatpak / image / Box / Workshop (PRD §82–83) | todo | |
+| M6-01 | Application audit: map current daily apps → Flatpak / image / Box / Workshop (PRD §82–83) | doing | draft at docs/app-migration.md — ✋ rows need Mariano |
 | M6-02 | Curated Flatpak set in image config | todo | |
 | M6-03 | Host dev tools in image (PRD §81: git, gh, ghostty, neovim, code, osctl) | todo | |
 | M6-04 | Tailscale + Proton VPN working (PRD §85) | todo | |
@@ -107,7 +108,7 @@ Goal: iteration is painless — build, test, stage, seal, roll back from the mac
 | ID | Task | Status | Notes |
 |----|------|--------|-------|
 | M7-01 | `agentboxd` skeleton: KVM/QEMU lifecycle | doing | domain model + daemon stub done (11 tests); QEMU backend is on-device work |
-| M7-02 | `box create/start/stop/shell/delete` CLI | doing | full command surface works in-process on mock runtime; shell/open attach pending |
+| M7-02 | `box create/start/stop/shell/delete` CLI | doing | full surface shared by `box` and `osctl box` (agentboxd::cli); shell/open attach pending |
 | M7-03 | Full Developer guest image (browser, shell, root, git, SSH, Claude, Codex) | todo | |
 | M7-04 | Virtual display + `box open` | todo | |
 | M7-05 | Persistence + `box snapshot` / `box reset` | todo | |
