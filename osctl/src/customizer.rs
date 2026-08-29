@@ -37,7 +37,7 @@ impl Flag for RunFlag {
 
 fn perm_hint(e: std::io::Error) -> String {
     if e.kind() == std::io::ErrorKind::PermissionDenied {
-        format!("{e} — run as root (sudo osctl customize …); a polkit-backed helper is planned")
+        format!("{e} — run as root (run0 osctl customize …; secureblue ships run0, not sudo); a polkit-backed helper is planned")
     } else {
         e.to_string()
     }

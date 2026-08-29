@@ -10,12 +10,17 @@ Follow [secureblue's install guide](https://secureblue.dev/install) and pick **K
 
 The device needs a token to pull from a private ghcr package. Create a classic GitHub PAT with the `read:packages` scope (github.com/settings/tokens), then:
 
+secureblue has no `sudo` — elevation is systemd's `run0`, and piping into it is
+unreliable (it runs commands in a fresh PTY), so stage the file first:
+
 ```bash
 TOKEN='<paste token>'
-sudo mkdir -p /etc/ostree
 printf '{"auths":{"ghcr.io":{"auth":"%s"}}}' \
-  "$(printf '%s' "MarianoMiguel:$TOKEN" | base64 -w0)" | sudo tee /etc/ostree/auth.json >/dev/null
-sudo chmod 600 /etc/ostree/auth.json
+  "$(printf '%s' "MarianoMiguel:$TOKEN" | base64 -w0)" > /tmp/ghcr-auth.json
+run0 mkdir -p /etc/ostree
+run0 cp /tmp/ghcr-auth.json /etc/ostree/auth.json
+run0 chmod 600 /etc/ostree/auth.json
+rm /tmp/ghcr-auth.json
 ```
 
 (If the repo goes public — task M0-10 — skip this step.)
