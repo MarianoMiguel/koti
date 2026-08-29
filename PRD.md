@@ -1,7 +1,8 @@
 # Koti PRD — A Secure Desktop That Feels Like Home
 
 **Status:** Canonical implementation specification
-**Version:** 1.0
+**Version:** 1.1 (revised 2026-08-28 — see Revision History)
+**Source:** github.com/MarianoMiguel/koti
 **Base:** secureblue Kinoite / Fedora Atomic
 **Desktop:** KDE Plasma + KWin on Wayland
 **Primary hardware:** ThinkPad P14s Gen 6 AMD
@@ -12,9 +13,26 @@
 
 ---
 
+# Revision History
+
+**1.1 (2026-08-28).** Revised during project bootstrap. Intent unchanged. Changes:
+
+* added concrete published-artifact naming — repo, registry, image names (§4);
+* clarified multi-monitor mode ownership: layout mode is per workspace-per-output (§10);
+* documented automatic upstream-tracking rebuilds (§88);
+* moved ISO generation out of Milestone 0 — the supported install path until the Stable channel exists is rebase-from-secureblue (§93, §100);
+* noted CI is the sole builder until the Builder VM ships in Milestone 1 (§100);
+* added a Milestone Map making the desktop and agent tracks explicitly parallel, and allowing Daily Driver Migration (M6) to begin right after M0;
+* updated the repository layout to match the real repo — task system, docs, BlueBuild file tree (§99);
+* minor language fixes.
+
+**1.0.** Original canonical specification.
+
+---
+
 # 1. Executive Summary
 
-Koti is finnish for Home. 
+Koti is Finnish for home.
 
 We want to build a secure, polished Linux workstation designed around two realities of modern computing:
 
@@ -219,6 +237,15 @@ Do not maintain a long-lived secureblue fork unless unavoidable.
 
 Consume secureblue as an upstream hardened image.
 
+Published artifacts:
+
+```text
+source     github.com/MarianoMiguel/koti
+registry   ghcr.io/marianomiguel
+image      koti           (AMD / Intel, from kinoite-main-hardened)
+image      koti-nvidia    (from kinoite-nvidia-open-hardened)
+```
+
 ---
 
 # 5. Trusted Computing Base
@@ -358,6 +385,8 @@ Mode state is persistent.
 Modes are interchangeable.
 
 Changing the layout mode does not create another workspace.
+
+On multi-monitor systems, layout mode is tracked per workspace-per-output: Scrolling on the laptop panel must not force Scrolling onto an external monitor. The workspace's mode is the default inherited by newly attached outputs.
 
 ---
 
@@ -2219,6 +2248,8 @@ reboot
 
 Current deployment remains available for rollback.
 
+Images rebuild automatically on a schedule so upstream secureblue and Fedora security updates flow into Koti without manual action.
+
 ---
 
 # 89. Local Package Layering
@@ -2337,6 +2368,8 @@ signed checksums
 ```
 
 No insecure first-boot bootstrap should be required.
+
+ISO generation is a Stable-channel deliverable, not a Milestone 0 requirement. Until then, the supported install path is: install stock secureblue, rebase to the signed Koti image, verify.
 
 ---
 
@@ -2487,11 +2520,20 @@ Never automatically include project source or credentials.
 Recommended:
 
 ```text
-os/
+koti/                      (repository root — github.com/MarianoMiguel/koti)
+├── PRD.md                 (this document)
+├── ROADMAP.md             (task tracking — statuses live here)
+├── CLAUDE.md              (working conventions for agent sessions)
+├── tasks/                 (one file per non-trivial task: detail + worklog)
+├── docs/                  (install, operations)
+│
 ├── recipes/
-│   ├── kinoite.yml
-│   ├── kinoite-nvidia.yml
+│   ├── koti.yml
+│   ├── koti-nvidia.yml
 │   └── fragments/
+│
+├── files/
+│   └── system/            (BlueBuild files module → image rootfs)
 │
 ├── desktop/
 │   ├── kwin-policy/
@@ -2536,6 +2578,24 @@ os/
 
 ---
 
+# Milestone Map
+
+Milestones are ordered by dependency, not strictly by number:
+
+```text
+M0 Secure Base
+ ├─→ M1 Customizer Infrastructure
+ │        └─→ M2 → M3 → M4 → M5     (desktop track)
+ ├─→ M6 Daily Driver Migration       (may begin immediately after M0)
+ └─→ M7 → M8 → M9 → M10 → M11       (agent track)
+
+M12 depends on M1 (Workshop) and M5 (theme UI).
+```
+
+The desktop track and the agent track are independent and may proceed in parallel. M6 does not require the four-mode desktop: daily-driving stock-Plasma Koti early creates the fast feedback loop the rest of the roadmap depends on.
+
+---
+
 # 100. Milestone 0 — Secure Base
 
 Deliver:
@@ -2543,13 +2603,15 @@ Deliver:
 ```text
 secureblue Kinoite derivative
 signed OCI image
-CI
-ISO
+CI build + sign + publish
+documented rebase install path
 Secure Boot installation
 rollback
 audit
 P14s boot
 ```
+
+ISO generation moves to the Stable-channel milestone (§93). Until the Builder VM exists (Milestone 1), CI is the only builder; local builds are a Milestone 1 deliverable, not an M0 requirement.
 
 Do not customize Plasma heavily yet.
 
